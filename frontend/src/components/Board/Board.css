@@ -1,0 +1,26 @@
+.board-container {
+  width: 100%;
+  max-width: 750px;
+  margin: 1rem auto;
+}
+
+.board-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 20px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    inset 0 0 60px rgba(0, 0, 0, 0.1);
+  border: 3px solid #1a4a6a;
+}
+
+.clickable-spot {
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+}
+.clickable-spot:hover {
+  opacity: 1;
+  filter: brightness(1.3);
+}
+
