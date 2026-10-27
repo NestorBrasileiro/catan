@@ -782,3 +782,76 @@ describe('pontos escondidos e vitória', () => {
     assert.equal(game.winnerId, 'B');
   });
 });
+
+describe('jogador que sai', () => {
+  test('sair na própria vez passa a vez, devolve a mão ao banco e o jogador é pulado depois', () => {
+    const { game, setDice } = emptyMainPhase();
+    const corners = game.graph.hexVertices.get(HILL)!;
+    game.buildings.set(corners[0], { owner: 'B', type: 'settlement' });
+    game.buildings.set(corners[3], { owner: 'C', type: 'settlement' });
+    ok(game, 'A', { type: 'end_turn' });
+    ok(game, 'B', { type: 'roll_dice' });
+    give(game, 'B', { ore: 4, wood: 1 });
+    const bankOre = game.bank.ore;
+
+    assert.equal(game.leave('B'), null);
+    assert.equal(game.currentPlayerId, 'C');
+    assert.equal(game.step, 'roll');
+    assert.equal(game.bank.ore, bankOre + 4);
+    assert.deepEqual(game.players.get('B')!.resources, { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 });
+    assert.deepEqual(game.toView('C').leftPlayers, ['B']);
+
+    setDice([3, 3]); // the hill: B no longer produces
+    ok(game, 'C', { type: 'roll_dice' });
+    assert.equal(game.players.get('B')!.resources.brick, 0);
+    assert.equal(game.players.get('C')!.resources.brick, 1);
+    ok(game, 'C', { type: 'end_turn' });
+    assert.equal(game.currentPlayerId, 'A');
+    ok(game, 'A', { type: 'roll_dice' });
+    ok(game, 'A', { type: 'end_turn' });
+    assert.equal(game.currentPlayerId, 'C');
+    assert.equal(game.apply('B', { type: 'roll_dice' }), 'Você saiu da partida.');
+  });
+
+  test('quem sai devendo descarte libera o ladrão', () => {
+    const { game, setDice } = emptyMainPhase();
+    passTurns(game, 3);
+    give(game, 'B', { wool: 8 });
+    give(game, 'C', { ore: 8 });
+    setDice([3, 4]);
+    ok(game, 'A', { type: 'roll_dice' });
+    assert.deepEqual(game.toView('A').discards, { B: 4, C: 4 });
+    ok(game, 'B', { type: 'discard', resources: { wool: 4 } });
+    game.leave('C');
+    assert.equal(game.step, 'move_robber');
+  });
+
+  test('o último que sobra vence', () => {
+    const { game } = emptyMainPhase();
+    game.leave('B');
+    assert.equal(game.phase, 'playing');
+    game.leave('A');
+    assert.equal(game.phase, 'finished');
+    assert.equal(game.winnerId, 'C');
+  });
+
+  test('quem sai durante a fundação é pulado na serpente', () => {
+    const { game } = newGame();
+    const order: string[] = [];
+    let left = false;
+    while (game.phase === 'setup') {
+      const p = game.currentPlayerId;
+      order.push(p);
+      ok(game, p, { type: 'build_settlement', vertexKey: game.legalMoves(p).settlements[0] });
+      if (p === 'B' && !left) {
+        game.leave('B'); // leaves before placing the road
+        left = true;
+        continue;
+      }
+      ok(game, p, { type: 'build_road', edgeKey: game.legalMoves(p).roads[0] });
+    }
+    assert.deepEqual(order, ['A', 'B', 'C', 'C', 'A']);
+    assert.equal(game.currentPlayerId, 'A');
+    assert.equal(game.step, 'roll');
+  });
+});

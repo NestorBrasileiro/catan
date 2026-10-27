@@ -20,8 +20,9 @@ function costText(kind: BuildKind | 'devCard'): string {
 }
 
 export default function GameView() {
-  const { room, user, board, gameState: game, sendAction } = useGame();
+  const { room, user, board, gameState: game, sendAction, leaveRoom } = useGame();
   const [buildMode, setBuildMode] = useState<BuildKind | null>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   if (!room || !user || !board || !game) {
     return <div className="card"><h2>🎲 Carregando tabuleiro...</h2></div>;
@@ -144,11 +145,17 @@ export default function GameView() {
           <ul className="score-list">
             {game.playerOrder.map(id => {
               const p = game.players[id];
+              const left = game.leftPlayers.includes(id);
+              const offline = !left && room.players.find(rp => rp.user_id === id)?.online === false;
               return (
                 <li key={id} className={id === game.currentPlayerId && game.phase !== 'finished' ? 'current' : ''}>
                   <div className="player-row">
                     <span className="color-dot" style={{ backgroundColor: p.color }} />
-                    <span className="player-name">{nameOf(id)}{id === user.id && ' (você)'}</span>
+                    <span className={`player-name ${left || offline ? 'away' : ''}`}>
+                      {nameOf(id)}{id === user.id && ' (você)'}
+                      {left && <span className="presence"> · saiu</span>}
+                      {offline && <span className="presence"> · offline</span>}
+                    </span>
                     <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
                     <span title="Cartas de recurso na mão">🃏 {p.resourceCount}</span>
                     <span title="Cartas de desenvolvimento">📜 {p.devCardCount}</span>
@@ -231,6 +238,21 @@ export default function GameView() {
           <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
             opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
+        <section className="panel leave-panel">
+          {game.phase === 'finished' ? (
+            <button className="wide btn-secondary" onClick={() => leaveRoom().catch(() => {})}>Voltar ao lobby</button>
+          ) : confirmingLeave ? (
+            <>
+              <p>Sair da partida? Sua vez passa a ser pulada, suas cartas voltam ao banco e não dá para voltar.</p>
+              <div className="offer-actions">
+                <button onClick={() => leaveRoom().catch(() => {})}>Sair</button>
+                <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
+              </div>
+            </>
+          ) : (
+            <button className="wide btn-secondary" onClick={() => setConfirmingLeave(true)}>Sair da partida</button>
+          )}
+        </section>
       </aside>
     </div>
   );

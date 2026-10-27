@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useGame } from '../../contexts/useGame';
 
 export default function LobbyMenu() {
-  const { createRoom, joinRoom } = useGame();
+  const { user, createRoom, joinRoom, switchPlayer } = useGame();
   const [mode, setMode] = useState<'menu' | 'create' | 'join'>('menu');
   const [code, setCode] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
@@ -31,8 +31,14 @@ export default function LobbyMenu() {
     return (
       <div className="card">
         <h2>Lobby</h2>
-        <button onClick={() => setMode('create')}>🏗️ Criar Nova Partida</button>
-        <button onClick={() => setMode('join')}>🚪 Entrar em Partida</button>
+        <p className="muted lobby-user">
+          Jogando como <strong>{user?.username}</strong> ·{' '}
+          <button className="link-btn" onClick={switchPlayer}>Trocar de jogador</button>
+        </p>
+        <div className="room-actions">
+          <button onClick={() => setMode('create')}>🏗️ Criar Nova Partida</button>
+          <button onClick={() => setMode('join')}>🚪 Entrar em Partida</button>
+        </div>
       </div>
     );
   }

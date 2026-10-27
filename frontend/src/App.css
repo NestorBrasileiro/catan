@@ -136,3 +136,7 @@ label {
   cursor: pointer;
   text-align: center;
 }
+
+.lobby-user {
+  text-align: center;
+}

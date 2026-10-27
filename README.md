@@ -40,7 +40,7 @@ pnpm install
 pnpm dev             # http://localhost:5173
 ```
 
-Abra duas janelas anónimas para simular 2 jogadores.
+Para simular vários jogadores no mesmo navegador, abra outra aba ou janela e use **Trocar de jogador** no lobby (uma aba nova entra automaticamente como o último jogador daquele navegador).
 
 ### Testes (regras do jogo)
 ```bash
@@ -60,7 +60,9 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Cartas de desenvolvimento (14 Cavaleiros, 5 Pontos de Vitória, 2 Construção de Estradas, 2 Invenção, 2 Monopólio): 1 por turno, a qualquer momento da vez (até antes de rolar), nunca a comprada no mesmo turno; pontos ficam escondidos dos outros
 - ✅ Maior Exército (3+ Cavaleiros) e Maior Estrada (5+, cortada por construção adversária; empate mantém o dono; se o dono perde a liderança e outros empatam, ninguém fica), 2 pontos cada
 - ✅ Vitória com 10 pontos durante a própria vez, contando pontos escondidos e também no início do turno (sala fica `finished` e vai para `game_history`)
-- ⏳ Reconexão (F5 ainda perde a partida), saída de jogador, histórico de jogadas, timer de turno
+- ✅ Reconexão: recarregar a página ou perder a conexão devolve o jogador ao mesmo lugar (sessão por token; só o hash fica no banco). Na sala de espera, quem cai tem 20 s para voltar; se o host sai, o próximo vira host
+- ✅ Presença e saída: o placar mostra quem está offline; "Sair da partida" pula a vez do jogador, devolve as cartas dele ao banco e ele para de produzir; o último que sobra vence
+- ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)
 
 ## Eventos WebSocket (Cliente → Servidor)
 
@@ -68,10 +70,11 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 
 | Evento | Payload | Resposta (ack) |
 |---|---|---|
-| `register` | `{ username }` | `{ ok, user: { id, username } }` |
+| `register` | `{ username }` | `{ ok, user: { id, username }, token }` |
+| `resume` | `{ token }` | `{ ok, user, inRoom }` (e reenvia sala, tabuleiro e estado do jogo) |
 | `create_room` | `{ maxPlayers (2–4), turnTimer (30–600) }` | `{ ok, room }` |
 | `join_room` | `{ code }` | `{ ok, room }` |
-| `leave_room` | `{}` | `{ ok }` |
+| `leave_room` | `{}` (sala de espera: libera o lugar; partida: desiste) | `{ ok }` |
 | `start_game` | `{}` (só o host) | `{ ok }` |
 | `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'discard', resources }` (qualquer jogador que deva cartas) · `{ type: 'move_robber', hexKey }` · `{ type: 'steal', victimId }` · `{ type: 'bank_trade', give, get }` · `{ type: 'propose_trade', give, get }` · `{ type: 'respond_trade', accept }` (os outros jogadores) · `{ type: 'confirm_trade', partnerId }` · `{ type: 'cancel_trade' }` · `{ type: 'buy_dev_card' }` · `{ type: 'play_knight' }` · `{ type: 'play_road_building' }` · `{ type: 'play_year_of_plenty', resources: [r1, r2] }` · `{ type: 'play_monopoly', resource }` · `{ type: 'end_turn' }` | `{ ok }` |
 
@@ -79,6 +82,6 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 
 | Evento | Payload |
 |---|---|
-| `room_state_updated` | `{ id, code, hostId, maxPlayers, turnTimer, status, players[] }` |
+| `room_state_updated` | `{ id, code, hostId, maxPlayers, turnTimer, status, players[] }` (cada jogador com `online`) |
 | `board_generated` | `{ hexes, ports, vertices, edges }` (uma vez, ao iniciar) |
 | `game_state_update` | visão do jogo para aquele jogador: mão própria, só a contagem de cartas dos outros, e as jogadas válidas (`legal`) se for a vez dele |

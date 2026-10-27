@@ -337,3 +337,24 @@ button.play-btn.active {
   margin-top: 0.6rem;
   font-size: 0.85rem;
 }
+
+.player-name.away {
+  opacity: 0.6;
+}
+
+.presence {
+  font-size: 0.75rem;
+  color: #e9a245;
+}
+
+.leave-panel p {
+  font-size: 0.85rem;
+}
+
+.leave-panel .offer-actions {
+  margin-top: 0.4rem;
+}
+
+.leave-panel button.wide {
+  margin-top: 0;
+}

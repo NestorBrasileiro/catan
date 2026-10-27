@@ -5,6 +5,7 @@ export interface Player {
   user_id: string;
   username: string;
   color: string;
+  online: boolean;
 }
 
 export interface RoomState {
@@ -28,12 +29,14 @@ export interface GameContextType {
   board: BoardData | null;
   gameState: GameView | null;
   connected: boolean;
+  resuming: boolean; // reconnecting a saved session
   register: (username: string) => Promise<void>;
   createRoom: (maxPlayers: number, turnTimer: number) => Promise<void>;
   joinRoom: (code: string) => Promise<void>;
-  leaveRoom: () => void;
+  leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;
   sendAction: (action: GameAction) => Promise<void>;
+  switchPlayer: () => void;
   error: string | null;
   clearError: () => void;
 }

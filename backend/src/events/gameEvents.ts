@@ -21,7 +21,7 @@ export function registerGameEvents(io: GameServer, socket: GameSocket) {
   });
 }
 
-function recordWinner(io: GameServer, roomId: string, winnerId: string) {
+export function recordWinner(io: GameServer, roomId: string, winnerId: string) {
   const db = getDb();
   db.prepare("UPDATE rooms SET status = 'finished' WHERE id = ?").run(roomId);
   db.prepare('INSERT INTO game_history (room_id, winner_id) VALUES (?, ?)').run(roomId, winnerId);

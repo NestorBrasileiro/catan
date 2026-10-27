@@ -139,6 +139,7 @@ export interface GameView {
   freeRoadsLeft: number;               // during Road Building
   largestArmyHolder: string | null;
   longestRoadHolder: string | null;
+  leftPlayers: string[];               // gave up the game: their turns are skipped
   legal: LegalMoves | null;            // only for the current player
 }
 
@@ -182,7 +183,6 @@ function rollTwoDice(): [number, number] {
 export class GameState {
   phase: GamePhase = 'setup';
   step: TurnStep = 'place_settlement';
-  setupRound: 1 | 2 = 1;
   currentPlayerIndex = 0;
   readonly playerOrder: string[];
   readonly players = new Map<string, PlayerState>();
@@ -203,6 +203,8 @@ export class GameState {
   freeRoadsLeft = 0;
   largestArmyHolder: string | null = null;
   longestRoadHolder: string | null = null;
+  readonly leftPlayers = new Set<string>();
+  private setupTurn = 0; // walks the player order forward, then backward
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
   private resumeStep: TurnStep = 'main'; // where the turn continues after the robber or Road Building
 
@@ -232,9 +234,14 @@ export class GameState {
     return this.playerOrder[this.currentPlayerIndex];
   }
 
+  get setupRound(): 1 | 2 {
+    return this.setupTurn < this.playerOrder.length ? 1 : 2;
+  }
+
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
+    if (this.leftPlayers.has(userId)) return 'Você saiu da partida.';
     const err = this.dispatch(userId, action);
     // A player wins the moment they have 10 points during their own turn (hidden points included),
     // which also covers starting a turn with points gained during someone else's
@@ -498,7 +505,7 @@ export class GameState {
 
       for (const vertexKey of this.graph.hexVertices.get(hexKey)!) {
         const building = this.buildings.get(vertexKey);
-        if (!building) continue;
+        if (!building || this.leftPlayers.has(building.owner)) continue;
         const perPlayer = owed.get(resource) ?? new Map<string, number>();
         perPlayer.set(building.owner, (perPlayer.get(building.owner) ?? 0) + (building.type === 'city' ? 2 : 1));
         owed.set(resource, perPlayer);
@@ -718,33 +725,75 @@ export class GameState {
   private endTurn(): string | null {
     const err = this.stepError('main');
     if (err) return err;
-
-    this.players.get(this.currentPlayerId)!.newDevCards = noDevCards();
-    this.devCardPlayed = false;
-    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
-    this.step = 'roll';
-    this.lastRobbery = null;
-    this.tradeOffer = null;
+    this.nextTurn();
     return null;
   }
 
-  // Setup order is 1-2-3-4 then 4-3-2-1; the first player then opens the game
+  // Hands the turn to the next player still in the game
+  private nextTurn() {
+    this.players.get(this.currentPlayerId)!.newDevCards = noDevCards();
+    this.devCardPlayed = false;
+    do {
+      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
+    } while (this.leftPlayers.has(this.currentPlayerId));
+    this.step = 'roll';
+    this.lastRobbery = null;
+    this.tradeOffer = null;
+  }
+
+  // Setup order is 1-2-3-4 then 4-3-2-1 (skipping anyone who left); the first player then opens the game
   private advanceSetupTurn() {
     const n = this.playerOrder.length;
+    const indexAt = (turn: number) => (turn < n ? turn : 2 * n - 1 - turn);
     this.step = 'place_settlement';
+    do {
+      this.setupTurn++;
+    } while (this.setupTurn < 2 * n && this.leftPlayers.has(this.playerOrder[indexAt(this.setupTurn)]));
 
-    if (this.setupRound === 1) {
-      if (this.currentPlayerIndex < n - 1) this.currentPlayerIndex++;
-      else this.setupRound = 2; // the last player places again
-      return;
-    }
-
-    if (this.currentPlayerIndex > 0) {
-      this.currentPlayerIndex--;
+    if (this.setupTurn < 2 * n) {
+      this.currentPlayerIndex = indexAt(this.setupTurn);
     } else {
       this.phase = 'playing';
       this.step = 'roll';
+      this.currentPlayerIndex = this.playerOrder.findIndex(id => !this.leftPlayers.has(id));
     }
+  }
+
+  // ===== LEAVING =====
+
+  // A player who gives up stays on the board, but their turns are skipped, their hand goes back
+  // to the bank and they stop producing. The last player standing wins.
+  leave(userId: string): string | null {
+    if (!this.players.has(userId)) return 'Jogador inválido.';
+    if (this.leftPlayers.has(userId)) return null;
+    this.leftPlayers.add(userId);
+    if (this.phase === 'finished') return null; // just leaving the table after the end
+
+    this.pay(userId, { ...this.players.get(userId)!.resources }); // a copy: pay() empties the hand as it goes
+    this.pendingDiscards.delete(userId);
+    this.tradeOffer?.responses.delete(userId);
+
+    const remaining = this.playerOrder.filter(id => !this.leftPlayers.has(id));
+    if (remaining.length === 1) {
+      this.phase = 'finished';
+      this.winnerId = remaining[0];
+      return null;
+    }
+
+    if (userId === this.currentPlayerId) {
+      // Whatever the turn was in the middle of is dropped
+      this.pendingDiscards.clear();
+      this.freeRoadsLeft = 0;
+      if (this.phase === 'setup') {
+        this.lastPlacedSettlement = null;
+        this.advanceSetupTurn();
+      } else {
+        this.nextTurn();
+      }
+    } else if (this.step === 'discard' && this.pendingDiscards.size === 0) {
+      this.step = 'move_robber';
+    }
+    return null;
   }
 
   private collectInitialResources(userId: string, vertexKey: string) {
@@ -877,6 +926,7 @@ export class GameState {
       freeRoadsLeft: this.freeRoadsLeft,
       largestArmyHolder: this.largestArmyHolder,
       longestRoadHolder: this.longestRoadHolder,
+      leftPlayers: [...this.leftPlayers],
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
     };
   }

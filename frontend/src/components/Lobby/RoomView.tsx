@@ -20,6 +20,7 @@ export default function RoomView() {
             {p.username}
             {p.user_id === room.hostId && ' 👑'}
             {p.user_id === user?.id && ' (você)'}
+            {!p.online && <span className="muted"> · offline</span>}
           </li>
         ))}
       </ul>
@@ -29,7 +30,7 @@ export default function RoomView() {
             🎲 Iniciar Jogo
           </button>
         )}
-        <button onClick={leaveRoom} className="btn-secondary">Sair da Sala</button>
+        <button onClick={() => leaveRoom().catch(() => {})} className="btn-secondary">Sair da Sala</button>
       </div>
     </div>
   );

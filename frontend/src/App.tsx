@@ -5,7 +5,7 @@ import RoomView from './components/Lobby/RoomView';
 import './App.css';
 
 function App() {
-  const { user, room, connected, error, clearError } = useGame();
+  const { user, room, connected, resuming, error, clearError } = useGame();
 
   return (
     <div className="app">
@@ -23,9 +23,10 @@ function App() {
       )}
 
       <main>
-        {!user && <RegisterForm />}
-        {user && !room && <LobbyMenu />}
-        {user && room && <RoomView />}
+        {resuming && <div className="card"><h2>Reconectando…</h2></div>}
+        {!resuming && !user && <RegisterForm />}
+        {!resuming && user && !room && <LobbyMenu />}
+        {!resuming && user && room && <RoomView />}
       </main>
     </div>
   );

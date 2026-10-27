@@ -1,17 +1,27 @@
-import { randomInt } from 'crypto';
+import { createHash, randomInt } from 'crypto';
 import { getDb } from '../config/database';
 import { nanoid } from 'nanoid';
 import { Room, RoomPlayer, PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, MIN_TURN_TIMER, MAX_TURN_TIMER } from '../models/types';
 import { generateBoard } from '../utils/boardGenerator';
 import { GameState, activeGames } from '../models/gameState';
-import { emitGameState, emitRoomState } from './broadcast';
+import { boardPayload, emitGameState, emitRoomState, onlineUserIds } from './broadcast';
+import { recordWinner } from './gameEvents';
 import { GameServer, GameSocket, onEvent } from './socket';
+
+// How long a player who dropped out of a waiting room keeps their seat (e.g. a page reload)
+const WAITING_ROOM_GRACE_MS = 20_000;
+const pendingRemovals = new Map<string, NodeJS.Timeout>(); // userId → scheduled removal
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
+}
+
+// Only a hash of the session token is stored, so a leaked database can't be used to log in
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 function isIntInRange(value: unknown, min: number, max: number): value is number {
@@ -27,10 +37,39 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// The room a returning player belongs to: a waiting room, or a game still in memory they haven't left
+function findCurrentRoom(userId: string): Room | undefined {
+  const rooms = getDb().prepare(`
+    SELECT r.* FROM room_players rp JOIN rooms r ON r.id = rp.room_id
+    WHERE rp.user_id = ? ORDER BY rp.joined_at DESC, rp.rowid DESC
+  `).all(userId) as Room[];
+  return rooms.find(r => r.status === 'waiting'
+    || (activeGames.has(r.id) && !activeGames.get(r.id)!.leftPlayers.has(userId)));
+}
+
+// Frees the seat; the host role passes to whoever joined first, and an empty room is deleted
+function removeFromWaitingRoom(io: GameServer, roomId: string, userId: string) {
+  const db = getDb();
+  db.prepare('DELETE FROM room_players WHERE room_id = ? AND user_id = ?').run(roomId, userId);
+  const remaining = db.prepare('SELECT user_id FROM room_players WHERE room_id = ? ORDER BY joined_at, rowid')
+    .all(roomId) as { user_id: string }[];
+  if (remaining.length === 0) {
+    db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+    return;
+  }
+  db.prepare('UPDATE rooms SET host_id = ? WHERE id = ? AND host_id = ?').run(remaining[0].user_id, roomId, userId);
+  emitRoomState(io, roomId);
+}
+
+function cancelPendingRemoval(userId: string) {
+  clearTimeout(pendingRemovals.get(userId));
+  pendingRemovals.delete(userId);
+}
+
 export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
   const db = getDb();
 
-  // Register user (simple — just a username, get back an id)
+  // Register user (just a username). The token lets this browser come back as the same player.
   onEvent<{ username: string }>(socket, 'register', (data, reply) => {
     if (socket.data.userId) return reply({ error: 'Já está registado.' });
     const username = typeof data.username === 'string' ? data.username.trim() : '';
@@ -39,10 +78,37 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     }
 
     const id = nanoid(12);
-    db.prepare('INSERT INTO users (id, username) VALUES (?, ?)').run(id, username);
+    const token = nanoid(32);
+    db.prepare('INSERT INTO users (id, username, token_hash) VALUES (?, ?, ?)').run(id, username, hashToken(token));
     socket.data.userId = id;
     socket.data.username = username;
-    reply({ ok: true, user: { id, username } });
+    reply({ ok: true, user: { id, username }, token });
+  });
+
+  // A returning browser (reload, dropped connection) takes its seat back
+  onEvent<{ token: string }>(socket, 'resume', (data, reply) => {
+    if (typeof data.token !== 'string' || data.token.length === 0) return reply({ error: 'Sessão inválida.' });
+    const user = db.prepare('SELECT id, username FROM users WHERE token_hash = ?')
+      .get(hashToken(data.token)) as { id: string; username: string } | undefined;
+    if (!user) return reply({ error: 'Sessão expirada.' });
+    if (socket.data.userId && socket.data.userId !== user.id) return reply({ error: 'Já está registado.' });
+
+    socket.data.userId = user.id;
+    socket.data.username = user.username;
+    cancelPendingRemoval(user.id);
+
+    const room = findCurrentRoom(user.id);
+    reply({ ok: true, user, inRoom: room !== undefined });
+    if (!room) return;
+
+    socket.join(room.id);
+    socket.data.roomId = room.id;
+    emitRoomState(io, room.id);
+    const game = activeGames.get(room.id);
+    if (game) {
+      socket.emit('board_generated', boardPayload(game));
+      socket.emit('game_state_update', game.toView(user.id));
+    }
   });
 
   // Create room
@@ -102,16 +168,25 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     emitRoomState(io, room.id);
   });
 
-  // Leave room
+  // Leave the waiting room, or give up / walk away from a game
   onEvent(socket, 'leave_room', (_data, reply) => {
     const { userId, roomId } = socket.data;
-    if (!roomId) return reply({ error: 'Não está em nenhuma sala.' });
+    if (!roomId || !userId) return reply({ error: 'Não está em nenhuma sala.' });
 
-    db.prepare('DELETE FROM room_players WHERE room_id = ? AND user_id = ?').run(roomId, userId);
     socket.leave(roomId);
     socket.data.roomId = undefined;
+    const room = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
+    const game = activeGames.get(roomId);
 
-    emitRoomState(io, roomId);
+    if (room?.status === 'waiting') {
+      removeFromWaitingRoom(io, roomId, userId);
+    } else if (game) {
+      const wasOver = game.winnerId !== null;
+      game.leave(userId);
+      if (!wasOver && game.winnerId) recordWinner(io, roomId, game.winnerId);
+      emitGameState(io, roomId);
+      emitRoomState(io, roomId);
+    }
     reply({ ok: true });
   });
 
@@ -135,26 +210,38 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     const game = new GameState(generateBoard(), playerInfos);
     activeGames.set(roomId, game);
 
-    // Send board with vertex/edge data for rendering
-    const vertices = [...game.graph.vertices.values()].map(v => ({ key: v.key, q: v.q, r: v.r, dir: v.dir }));
-    const edges = [...game.graph.edges.values()].map(e => ({ key: e.key, vertices: e.vertices }));
-
     reply({ ok: true });
     emitRoomState(io, roomId);
     io.to(roomId).emit('game_started', { roomId });
-    io.to(roomId).emit('board_generated', { ...game.board, vertices, edges });
+    io.to(roomId).emit('board_generated', boardPayload(game));
     emitGameState(io, roomId);
   });
 
-  // Disconnect cleanup
+  // A dropped connection keeps the seat: in a game for good (others see the player offline),
+  // in a waiting room for a short grace period
   socket.on('disconnect', () => {
-    const { userId, roomId } = socket.data;
-    if (!roomId || !userId) return;
-
-    const room = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
-    if (room?.status === 'waiting') {
-      db.prepare('DELETE FROM room_players WHERE room_id = ? AND user_id = ?').run(roomId, userId);
+    try {
+      const { userId, roomId } = socket.data;
+      if (!roomId || !userId) return;
       emitRoomState(io, roomId);
+      if (onlineUserIds(io, roomId).has(userId)) return; // still connected from another tab
+
+      const room = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
+      if (room?.status !== 'waiting') return;
+      cancelPendingRemoval(userId);
+      pendingRemovals.set(userId, setTimeout(() => {
+        try {
+          pendingRemovals.delete(userId);
+          const current = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
+          if (current?.status === 'waiting' && !onlineUserIds(io, roomId).has(userId)) {
+            removeFromWaitingRoom(io, roomId, userId);
+          }
+        } catch (err) {
+          console.error('[WS] Erro ao liberar lugar na sala:', err);
+        }
+      }, WAITING_ROOM_GRACE_MS));
+    } catch (err) {
+      console.error('[WS] Erro em disconnect:', err);
     }
   });
 }

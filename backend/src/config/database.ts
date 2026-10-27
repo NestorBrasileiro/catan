@@ -24,6 +24,7 @@ function initTables(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL,
+      token_hash TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -56,5 +57,10 @@ function initTables(db: Database.Database) {
       FOREIGN KEY (room_id) REFERENCES rooms(id)
     );
   `);
+
+  // Databases created before sessions existed lack the token column
+  const userColumns = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
+  if (!userColumns.some(c => c.name === 'token_hash')) db.exec('ALTER TABLE users ADD COLUMN token_hash TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash)');
 }
 

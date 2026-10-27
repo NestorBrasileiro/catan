@@ -108,6 +108,7 @@ export interface GameView {
   freeRoadsLeft: number;
   largestArmyHolder: string | null;
   longestRoadHolder: string | null;
+  leftPlayers: string[]; // gave up: their turns are skipped
   legal: {
     settlements: string[];
     roads: string[];
