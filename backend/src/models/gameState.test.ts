@@ -23,7 +23,7 @@ function fixedBoard(): BoardData {
 const HILL = '0,-1';
 
 function newGame(board = fixedBoard()) {
-  let nextDice: [number, number] = [3, 4];
+  let nextDice: [number, number] = [2, 3]; // 5: produces nothing on the fixed board
   const game = new GameState(board, PLAYERS, () => nextDice);
   return { game, setDice: (d: [number, number]) => { nextDice = d; } };
 }
@@ -40,7 +40,7 @@ function playSetup(game: GameState) {
   }
 }
 
-// A started game with an empty board and empty hands, A to play and dice already rolled
+// A started game with an empty board and empty hands, A to play and dice already rolled (a 5)
 function emptyMainPhase() {
   const g = newGame();
   playSetup(g.game);
@@ -129,7 +129,7 @@ describe('turno', () => {
     assert.equal(game.apply('A', { type: 'end_turn' }), 'Role os dados primeiro.');
     assert.equal(game.apply('A', { type: 'build_city', vertexKey: 'x' }), 'Role os dados primeiro.');
     ok(game, 'A', { type: 'roll_dice' });
-    assert.deepEqual(game.dice, [3, 4]);
+    assert.deepEqual(game.dice, [2, 3]);
     assert.equal(game.apply('A', { type: 'roll_dice' }), 'Os dados já foram rolados.');
     ok(game, 'A', { type: 'end_turn' });
     assert.equal(game.currentPlayerId, 'B');
@@ -189,11 +189,114 @@ describe('produção', () => {
     assert.equal(game.bank.brick, 0);
   });
 
-  test('7 não produz nada', () => {
+  test('7 não produz nada e chama o ladrão', () => {
     const { game, setDice } = withBuildingsOnHill();
     setDice([3, 4]);
     ok(game, 'B', { type: 'roll_dice' });
     assert.equal(game.players.get('A')!.resources.brick, 0);
+    assert.equal(game.step, 'move_robber');
+  });
+});
+
+describe('ladrão', () => {
+  // A's turn, about to roll a 7
+  function beforeSeven() {
+    const g = newGame();
+    playSetup(g.game);
+    g.game.buildings.clear();
+    g.game.roads.clear();
+    for (const p of g.game.players.values()) p.resources = { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 };
+    for (const r of RESOURCES) g.game.bank[r] = BANK_SIZE;
+    g.setDice([3, 4]);
+    return g.game;
+  }
+
+  test('quem tem mais de 7 cartas descarta metade, todos ao mesmo tempo', () => {
+    const game = beforeSeven();
+    give(game, 'A', { wood: 9 });
+    give(game, 'B', { ore: 5, wheat: 3 });
+    give(game, 'C', { wool: 7 });
+    ok(game, 'A', { type: 'roll_dice' });
+
+    assert.equal(game.step, 'discard');
+    assert.deepEqual(game.toView('C').discards, { A: 4, B: 4 });
+    assert.equal(game.apply('A', { type: 'move_robber', hexKey: HILL }), 'Aguardando os jogadores descartarem.');
+    assert.equal(game.apply('A', { type: 'end_turn' }), 'Aguardando os jogadores descartarem.');
+    assert.equal(game.apply('C', { type: 'discard', resources: { wool: 3 } }), 'Você não precisa descartar.');
+
+    // B discards outside their own turn
+    assert.equal(game.apply('B', { type: 'discard', resources: { ore: 3 } }), 'Descarte exatamente 4 cartas.');
+    assert.equal(game.apply('B', { type: 'discard', resources: { wheat: 4 } }), 'Você não tem essas cartas.');
+    assert.equal(game.apply('B', { type: 'discard', resources: { ore: -1, wheat: 5 } }), 'Cartas inválidas.');
+    assert.equal(game.apply('B', { type: 'discard', resources: { ore: '4' } as unknown as Resources }), 'Cartas inválidas.');
+    ok(game, 'B', { type: 'discard', resources: { ore: 2, wheat: 2 } });
+    assert.deepEqual(game.players.get('B')!.resources, { wood: 0, brick: 0, wool: 0, wheat: 1, ore: 3 });
+    assert.equal(game.bank.ore, BANK_SIZE + 2);
+    assert.equal(game.apply('B', { type: 'discard', resources: { ore: 1 } }), 'Você não precisa descartar.');
+
+    assert.equal(game.step, 'discard');
+    ok(game, 'A', { type: 'discard', resources: { wood: 4 } });
+    assert.equal(game.step, 'move_robber');
+    assert.equal(game.apply('B', { type: 'discard', resources: {} }), 'Não há descarte pendente.');
+  });
+
+  test('o ladrão tem que mudar de hexágono e só o jogador da vez move', () => {
+    const game = beforeSeven();
+    ok(game, 'A', { type: 'roll_dice' });
+    assert.equal(game.step, 'move_robber');
+    const legal = game.legalMoves('A');
+    assert.equal(legal.robberHexes.length, 18);
+    assert.ok(!legal.robberHexes.includes(game.robberHex));
+
+    assert.equal(game.apply('B', { type: 'move_robber', hexKey: HILL }), 'Não é a sua vez.');
+    assert.equal(game.apply('A', { type: 'move_robber', hexKey: game.robberHex }), 'O ladrão precisa mudar de lugar.');
+    assert.equal(game.apply('A', { type: 'move_robber', hexKey: '9,9' }), 'Hexágono inválido.');
+    assert.equal(game.apply('A', { type: 'build_road', edgeKey: 'x' }), 'Mova o ladrão primeiro.');
+
+    ok(game, 'A', { type: 'move_robber', hexKey: HILL });
+    assert.equal(game.robberHex, HILL);
+    assert.equal(game.step, 'main'); // nobody to rob
+    assert.equal(game.lastRobbery, null);
+  });
+
+  test('com uma só vítima o roubo é automático e só ladrão e vítima veem a carta', () => {
+    const game = beforeSeven();
+    const corners = game.graph.hexVertices.get(HILL)!;
+    game.buildings.set(corners[0], { owner: 'A', type: 'settlement' });
+    game.buildings.set(corners[2], { owner: 'B', type: 'settlement' });
+    game.buildings.set(corners[4], { owner: 'C', type: 'city' }); // C has no cards: not a victim
+    give(game, 'B', { brick: 2 });
+    ok(game, 'A', { type: 'roll_dice' });
+    ok(game, 'A', { type: 'move_robber', hexKey: HILL });
+
+    assert.equal(game.step, 'main');
+    assert.equal(game.players.get('A')!.resources.brick, 1);
+    assert.equal(game.players.get('B')!.resources.brick, 1);
+    assert.deepEqual(game.toView('A').lastRobbery, { thiefId: 'A', victimId: 'B', resource: 'brick' });
+    assert.deepEqual(game.toView('B').lastRobbery, { thiefId: 'A', victimId: 'B', resource: 'brick' });
+    assert.deepEqual(game.toView('C').lastRobbery, { thiefId: 'A', victimId: 'B', resource: null });
+
+    ok(game, 'A', { type: 'end_turn' });
+    assert.equal(game.lastRobbery, null);
+  });
+
+  test('com mais de uma vítima o jogador escolhe de quem roubar', () => {
+    const game = beforeSeven();
+    const corners = game.graph.hexVertices.get(HILL)!;
+    game.buildings.set(corners[0], { owner: 'B', type: 'settlement' });
+    game.buildings.set(corners[3], { owner: 'C', type: 'settlement' });
+    give(game, 'B', { ore: 1 });
+    give(game, 'C', { wool: 3 });
+    ok(game, 'A', { type: 'roll_dice' });
+    ok(game, 'A', { type: 'move_robber', hexKey: HILL });
+
+    assert.equal(game.step, 'steal');
+    assert.deepEqual(game.legalMoves('A').victims.sort(), ['B', 'C']);
+    assert.equal(game.apply('A', { type: 'end_turn' }), 'Escolha de quem roubar primeiro.');
+    assert.equal(game.apply('A', { type: 'steal', victimId: 'A' }), 'Não é possível roubar desse jogador.');
+    ok(game, 'A', { type: 'steal', victimId: 'C' });
+    assert.equal(game.players.get('A')!.resources.wool, 1);
+    assert.equal(game.players.get('C')!.resources.wool, 2);
     assert.equal(game.step, 'main');
   });
 });

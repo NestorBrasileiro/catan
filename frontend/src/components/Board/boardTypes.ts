@@ -40,7 +40,7 @@ export interface BoardData {
 // ===== Game state as seen by one player (mirrors backend GameView) =====
 
 export type GamePhase = 'setup' | 'playing' | 'finished';
-export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'main';
+export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'main';
 export type BuildKind = 'road' | 'settlement' | 'city';
 export type Resources = Record<ResourceType, number>;
 
@@ -49,6 +49,9 @@ export type GameAction =
   | { type: 'build_road'; edgeKey: string }
   | { type: 'build_city'; vertexKey: string }
   | { type: 'roll_dice' }
+  | { type: 'discard'; resources: Partial<Resources> }
+  | { type: 'move_robber'; hexKey: string }
+  | { type: 'steal'; victimId: string }
   | { type: 'end_turn' };
 
 export interface PlayerView {
@@ -71,7 +74,15 @@ export interface GameView {
   robberHex: string;
   dice: [number, number] | null;
   winnerId: string | null;
-  legal: { settlements: string[]; roads: string[]; cities: string[] } | null;
+  discards: Record<string, number>; // cards each player still has to discard after a 7
+  lastRobbery: { thiefId: string; victimId: string; resource: ResourceType | null } | null;
+  legal: {
+    settlements: string[];
+    roads: string[];
+    cities: string[];
+    robberHexes: string[];
+    victims: string[];
+  } | null;
 }
 
 export const RESOURCE_ORDER: ResourceType[] = ['wood', 'brick', 'wool', 'wheat', 'ore'];

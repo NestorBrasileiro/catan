@@ -55,8 +55,9 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Tabuleiro aleatório oficial: 19 hexágonos, 9 portos, 6 e 8 nunca vizinhos, ladrão no deserto
 - ✅ Fundação: ordem sorteada, serpente (1-2-3-4, 4-3-2-1), regra de distância, recursos da 2ª aldeia
 - ✅ Turno: rolar dados, produção (aldeia 1, cidade 2, ladrão bloqueia, limite de 19 cartas por recurso no banco), construir estrada/aldeia/cidade com custos e limite de peças (15/5/4), passar a vez
+- ✅ Ladrão no 7: quem tem mais de 7 cartas descarta metade (todos ao mesmo tempo), o jogador da vez move o ladrão e rouba 1 carta aleatória de um vizinho (automático se só houver um)
 - ✅ Vitória com 10 pontos no próprio turno (sala fica `finished` e vai para `game_history`)
-- ⏳ Ladrão no 7 (descarte, mover, roubar), comércio (banco, portos, jogadores), cartas de desenvolvimento, Maior Estrada / Maior Exército, reconexão
+- ⏳ Comércio (banco, portos, jogadores), cartas de desenvolvimento, Maior Estrada / Maior Exército, reconexão
 
 ## Eventos WebSocket (Cliente → Servidor)
 
@@ -69,7 +70,7 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 | `join_room` | `{ code }` | `{ ok, room }` |
 | `leave_room` | `{}` | `{ ok }` |
 | `start_game` | `{}` (só o host) | `{ ok }` |
-| `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'end_turn' }` | `{ ok }` |
+| `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'discard', resources }` (qualquer jogador que deva cartas) · `{ type: 'move_robber', hexKey }` · `{ type: 'steal', victimId }` · `{ type: 'end_turn' }` | `{ ok }` |
 
 ## Eventos WebSocket (Servidor → Cliente)
 

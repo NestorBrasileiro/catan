@@ -151,3 +151,51 @@ button.wide {
 .pieces {
   margin-top: 0.6rem;
 }
+
+.panel-alert {
+  border: 2px solid #e94560;
+}
+
+.discard-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.discard-list li {
+  display: grid;
+  grid-template-columns: 1fr 2rem 1.6rem 2rem;
+  align-items: center;
+  gap: 0.3rem;
+  text-align: center;
+}
+
+.discard-label {
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+button.stepper {
+  padding: 0.2rem 0;
+  font-size: 1rem;
+  background: #0f3460;
+}
+
+.victims {
+  display: flex;
+  flex-direction: column;
+}
+
+.victim-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.robbery {
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+}

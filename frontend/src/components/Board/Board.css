@@ -24,11 +24,22 @@
   fill: rgba(255, 255, 100, 0.9);
 }
 
+.clickable-hex {
+  cursor: pointer;
+  fill: rgba(255, 255, 100, 0.15);
+  stroke: #ff0;
+  stroke-width: 3;
+  animation: spot-pulse 1.2s ease-in-out infinite;
+}
+.clickable-hex:hover {
+  fill: rgba(255, 255, 100, 0.4);
+}
+
 @keyframes spot-pulse {
   50% { stroke-opacity: 0.35; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .clickable-spot { animation: none; }
+  .clickable-spot, .clickable-hex { animation: none; }
 }
 

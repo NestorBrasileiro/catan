@@ -3,8 +3,8 @@ import { BoardData, RESOURCES, ResourceType, TERRAIN_TO_RESOURCE } from '../util
 import { BoardGraph, buildBoardGraph } from '../utils/boardGraph';
 
 export type GamePhase = 'setup' | 'playing' | 'finished';
-// What the current player has to do next
-export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'main';
+// What has to happen next. 'discard' waits on every player who owes cards, not only the current one.
+export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'main';
 export type BuildingType = 'settlement' | 'city';
 export type Resources = Record<ResourceType, number>;
 
@@ -13,6 +13,9 @@ export type GameAction =
   | { type: 'build_road'; edgeKey: string }
   | { type: 'build_city'; vertexKey: string }
   | { type: 'roll_dice' }
+  | { type: 'discard'; resources: Partial<Resources> }
+  | { type: 'move_robber'; hexKey: string }
+  | { type: 'steal'; victimId: string }
   | { type: 'end_turn' };
 
 export const COSTS = {
@@ -24,11 +27,15 @@ export const COSTS = {
 export const PIECE_LIMITS = { road: 15, settlement: 5, city: 4 };
 export const BANK_SIZE = 19;
 export const POINTS_TO_WIN = 10;
+export const MAX_SAFE_HAND = 7; // on a 7, bigger hands lose half
 
 const STEP_HINT: Record<TurnStep, string> = {
   place_settlement: 'Coloque uma aldeia primeiro.',
   place_road: 'Coloque uma estrada primeiro.',
   roll: 'Role os dados primeiro.',
+  discard: 'Aguardando os jogadores descartarem.',
+  move_robber: 'Mova o ladrão primeiro.',
+  steal: 'Escolha de quem roubar primeiro.',
   main: 'Os dados já foram rolados.',
 };
 
@@ -54,6 +61,14 @@ export interface LegalMoves {
   settlements: string[];
   roads: string[];
   cities: string[];
+  robberHexes: string[];
+  victims: string[];
+}
+
+interface Robbery {
+  thiefId: string;
+  victimId: string;
+  resource: ResourceType | null; // hidden from everyone but thief and victim
 }
 
 export interface GameView {
@@ -68,11 +83,29 @@ export interface GameView {
   robberHex: string;                   // "q,r"
   dice: [number, number] | null;
   winnerId: string | null;
+  discards: Record<string, number>;    // userId → cards still owed after a 7
+  lastRobbery: Robbery | null;
   legal: LegalMoves | null;            // only for the current player
 }
 
 function resources(amount: number): Resources {
   return { wood: amount, brick: amount, wool: amount, wheat: amount, ore: amount };
+}
+
+function handSize(hand: Resources): number {
+  return RESOURCES.reduce((sum, r) => sum + hand[r], 0);
+}
+
+// Reads a client-sent card selection; null if anything isn't a non-negative integer
+function parseCards(cards: unknown): Resources | null {
+  if (typeof cards !== 'object' || cards === null) return null;
+  const parsed = resources(0);
+  for (const r of RESOURCES) {
+    const n = (cards as Record<string, unknown>)[r] ?? 0;
+    if (!Number.isInteger(n) || (n as number) < 0) return null;
+    parsed[r] = n as number;
+  }
+  return parsed;
 }
 
 function rollTwoDice(): [number, number] {
@@ -94,6 +127,8 @@ export class GameState {
   robberHex: string;
   dice: [number, number] | null = null;
   winnerId: string | null = null;
+  readonly pendingDiscards = new Map<string, number>();
+  lastRobbery: Robbery | null = null;
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
 
   constructor(
@@ -118,6 +153,8 @@ export class GameState {
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
+    // Discarding after a 7 is the one action players take outside their own turn
+    if (action?.type === 'discard') return this.discard(userId, action.resources);
     if (userId !== this.currentPlayerId) return 'Não é a sua vez.';
 
     switch (action?.type) {
@@ -125,6 +162,8 @@ export class GameState {
       case 'build_road': return this.buildRoad(userId, action.edgeKey);
       case 'build_city': return this.buildCity(userId, action.vertexKey);
       case 'roll_dice': return this.roll();
+      case 'move_robber': return this.moveRobber(userId, action.hexKey);
+      case 'steal': return this.steal(userId, action.victimId);
       case 'end_turn': return this.endTurn();
       default: return 'Ação inválida.';
     }
@@ -255,10 +294,82 @@ export class GameState {
 
     this.dice = this.rollDice();
     const sum = this.dice[0] + this.dice[1];
-    // A 7 produces nothing; the robber's effects (discard, move, steal) are not in the game yet
-    if (sum !== 7) this.produce(sum);
+    if (sum === 7) {
+      this.startRobber();
+    } else {
+      this.produce(sum);
+      this.step = 'main';
+    }
+    return null;
+  }
+
+  // ===== ROBBER (a 7 was rolled) =====
+
+  private startRobber() {
+    for (const [id, p] of this.players) {
+      const size = handSize(p.resources);
+      if (size > MAX_SAFE_HAND) this.pendingDiscards.set(id, Math.floor(size / 2));
+    }
+    this.step = this.pendingDiscards.size > 0 ? 'discard' : 'move_robber';
+  }
+
+  private discard(userId: string, cards: unknown): string | null {
+    if (this.step !== 'discard') return 'Não há descarte pendente.';
+    const owed = this.pendingDiscards.get(userId);
+    if (!owed) return 'Você não precisa descartar.';
+
+    const chosen = parseCards(cards);
+    if (!chosen) return 'Cartas inválidas.';
+    if (handSize(chosen) !== owed) return `Descarte exatamente ${owed} cartas.`;
+    if (!this.canAfford(userId, chosen)) return 'Você não tem essas cartas.';
+
+    this.pay(userId, chosen);
+    this.pendingDiscards.delete(userId);
+    if (this.pendingDiscards.size === 0) this.step = 'move_robber';
+    return null;
+  }
+
+  private moveRobber(userId: string, hexKey: string): string | null {
+    const err = this.stepError('move_robber');
+    if (err) return err;
+    if (!this.graph.hexVertices.has(hexKey)) return 'Hexágono inválido.';
+    if (hexKey === this.robberHex) return 'O ladrão precisa mudar de lugar.';
+
+    this.robberHex = hexKey;
+    const victims = this.robberVictims(userId);
+    if (victims.length === 1) this.stealFrom(userId, victims[0]);
+    this.step = victims.length > 1 ? 'steal' : 'main';
+    return null;
+  }
+
+  private steal(userId: string, victimId: string): string | null {
+    const err = this.stepError('steal');
+    if (err) return err;
+    if (!this.robberVictims(userId).includes(victimId)) return 'Não é possível roubar desse jogador.';
+
+    this.stealFrom(userId, victimId);
     this.step = 'main';
     return null;
+  }
+
+  // Opponents with a building on the robber's hex and at least one card
+  private robberVictims(userId: string): string[] {
+    const victims = new Set<string>();
+    for (const vertexKey of this.graph.hexVertices.get(this.robberHex)!) {
+      const owner = this.buildings.get(vertexKey)?.owner;
+      if (owner && owner !== userId && handSize(this.players.get(owner)!.resources) > 0) victims.add(owner);
+    }
+    return [...victims];
+  }
+
+  // Takes one card at random, as if drawn face down from the victim's hand
+  private stealFrom(thiefId: string, victimId: string) {
+    const hand = this.players.get(victimId)!.resources;
+    const cards = RESOURCES.flatMap(r => Array<ResourceType>(hand[r]).fill(r));
+    const resource = cards[randomInt(cards.length)];
+    hand[resource]--;
+    this.players.get(thiefId)!.resources[resource]++;
+    this.lastRobbery = { thiefId, victimId, resource };
   }
 
   private produce(sum: number) {
@@ -294,6 +405,7 @@ export class GameState {
 
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
     this.step = 'roll';
+    this.lastRobbery = null;
     return null;
   }
 
@@ -377,6 +489,8 @@ export class GameState {
       settlements: vertices.filter(v => !this.settlementError(userId, v)),
       cities: vertices.filter(v => !this.cityError(userId, v)),
       roads: [...this.graph.edges.keys()].filter(e => !this.roadError(userId, e)),
+      robberHexes: this.step === 'move_robber' ? [...this.graph.hexVertices.keys()].filter(h => h !== this.robberHex) : [],
+      victims: this.step === 'steal' ? this.robberVictims(userId) : [],
     };
   }
 
@@ -387,7 +501,7 @@ export class GameState {
       players[id] = {
         color: p.color,
         victoryPoints: this.victoryPoints(id),
-        resourceCount: RESOURCES.reduce((sum, r) => sum + p.resources[r], 0),
+        resourceCount: handSize(p.resources),
         resources: id === viewerId ? { ...p.resources } : null,
         piecesLeft: {
           road: PIECE_LIMITS.road - this.countRoads(id),
@@ -398,6 +512,8 @@ export class GameState {
     }
 
     const isActivePlayer = viewerId === this.currentPlayerId && this.phase !== 'finished';
+    const robbery = this.lastRobbery;
+    const seesStolenCard = robbery && (viewerId === robbery.thiefId || viewerId === robbery.victimId);
     return {
       phase: this.phase,
       step: this.step,
@@ -410,6 +526,8 @@ export class GameState {
       robberHex: this.robberHex,
       dice: this.dice,
       winnerId: this.winnerId,
+      discards: Object.fromEntries(this.pendingDiscards),
+      lastRobbery: robbery && { ...robbery, resource: seesStolenCard ? robbery.resource : null },
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
     };
   }

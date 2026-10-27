@@ -1,5 +1,5 @@
 import type { BoardData, GameView } from './boardTypes';
-import { axialToPixel, buildCoastlinePath, hexCornerPixel, vertexKeyToPixel, edgeToPixel } from './boardTypes';
+import { axialToPixel, buildCoastlinePath, hexCornerPixel, hexCorners, vertexKeyToPixel, edgeToPixel } from './boardTypes';
 import Hex from './Hex';
 import './Board.css';
 
@@ -8,14 +8,18 @@ interface BoardProps {
   game: GameView;
   highlightVertices: string[];
   highlightEdges: string[];
+  highlightHexes: string[];
   onVertexClick: (vertexKey: string) => void;
   onEdgeClick: (edgeKey: string) => void;
+  onHexClick: (hexKey: string) => void;
 }
 
 const HEX_SIZE = 52;
 const OUTLINE = '#1d1d1d';
 
-export default function Board({ board, game, highlightVertices, highlightEdges, onVertexClick, onEdgeClick }: BoardProps) {
+export default function Board({
+  board, game, highlightVertices, highlightEdges, highlightHexes, onVertexClick, onEdgeClick, onHexClick,
+}: BoardProps) {
   const hexPositions = board.hexes.map(hex => {
     const { x, y } = axialToPixel(hex.q, hex.r, HEX_SIZE);
     return { hex, x, y };
@@ -100,6 +104,14 @@ export default function Board({ board, game, highlightVertices, highlightEdges, 
             </g>
           );
         })}
+
+        {/* Hexes the robber can move to */}
+        {hexPositions.filter(({ hex }) => highlightHexes.includes(`${hex.q},${hex.r}`)).map(({ hex, x, y }) => (
+          <polygon key={`hex-spot-${hex.q},${hex.r}`}
+            points={hexCorners(x, y, HEX_SIZE * 0.9)}
+            className="clickable-hex"
+            onClick={() => onHexClick(`${hex.q},${hex.r}`)} />
+        ))}
 
         {/* Roads: a dark outline under the player's color keeps light colors visible */}
         {Object.entries(game.roads).map(([edgeKey, owner]) => {
