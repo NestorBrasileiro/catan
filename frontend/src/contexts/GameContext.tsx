@@ -1,56 +1,25 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { socket } from '../services/socket';
-import type { BoardData, GameStateSnapshot } from '../components/Board/boardTypes';
+import type { BoardData, GameAction, GameView } from '../components/Board/boardTypes';
+import { GameContext, type RoomState, type UserInfo } from './useGame';
 
-interface Player {
-  user_id: string;
-  username: string;
-  color: string;
-}
+type AckResponse = { error?: string } & Record<string, unknown>;
 
-interface RoomState {
-  id: string;
-  code: string;
-  hostId: string;
-  maxPlayers: number;
-  turnTimer: number;
-  status: string;
-  players: Player[];
-}
-
-interface UserInfo {
-  id: string;
-  username: string;
-}
-
-interface GameContextType {
-  user: UserInfo | null;
-  room: RoomState | null;
-  board: BoardData | null;
-  gameState: GameStateSnapshot | null;
-  connected: boolean;
-  register: (username: string) => Promise<void>;
-  createRoom: (maxPlayers: number, turnTimer: number) => Promise<string>;
-  joinRoom: (code: string) => Promise<void>;
-  leaveRoom: () => void;
-  startGame: () => Promise<void>;
-  buildSettlement: (vertexKey: string) => Promise<void>;
-  buildRoad: (edgeKey: string) => Promise<void>;
-  error: string | null;
-  clearError: () => void;
-}
-
-const GameContext = createContext<GameContextType>(null!);
-
-export function useGame() {
-  return useContext(GameContext);
+// Emits an event and resolves with the server's ack, rejecting when it carries an error
+function request<T>(event: string, payload: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    socket.emit(event, payload, (res: AckResponse) => {
+      if (res.error) reject(new Error(res.error));
+      else resolve(res as T);
+    });
+  });
 }
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [room, setRoom] = useState<RoomState | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
-  const [gameState, setGameState] = useState<GameStateSnapshot | null>(null);
+  const [gameState, setGameState] = useState<GameView | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +29,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     socket.on('disconnect', () => setConnected(false));
     socket.on('room_state_updated', (state: RoomState) => setRoom(state));
     socket.on('board_generated', (data: BoardData) => setBoard(data));
-    socket.on('game_state_update', (state: GameStateSnapshot) => setGameState(state));
+    socket.on('game_state_update', (state: GameView) => setGameState(state));
 
     return () => {
       socket.off('connect');
@@ -72,68 +41,49 @@ export function GameProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const register = useCallback(async (username: string) => {
-    return new Promise<void>((resolve, reject) => {
-      socket.emit('register', { username }, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else { setUser(res.user); resolve(); }
-      });
-    });
+  // Shows the server's refusal in the error banner, then rethrows for the caller
+  const call = useCallback(async <T,>(event: string, payload: unknown = {}): Promise<T> => {
+    try {
+      return await request<T>(event, payload);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    }
   }, []);
+
+  const register = useCallback(async (username: string) => {
+    const res = await call<{ user: UserInfo }>('register', { username });
+    setUser(res.user);
+  }, [call]);
 
   const createRoom = useCallback(async (maxPlayers: number, turnTimer: number) => {
-    return new Promise<string>((resolve, reject) => {
-      socket.emit('create_room', { maxPlayers, turnTimer }, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else resolve(res.room.code);
-      });
-    });
-  }, []);
+    await call('create_room', { maxPlayers, turnTimer });
+  }, [call]);
 
   const joinRoom = useCallback(async (code: string) => {
-    return new Promise<void>((resolve, reject) => {
-      socket.emit('join_room', { code }, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else resolve();
-      });
-    });
-  }, []);
+    await call('join_room', { code });
+  }, [call]);
 
   const leaveRoom = useCallback(() => {
     socket.emit('leave_room', {}, () => setRoom(null));
   }, []);
 
   const startGame = useCallback(async () => {
-    return new Promise<void>((resolve, reject) => {
-      socket.emit('start_game', {}, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else resolve();
-      });
-    });
-  }, []);
+    await call('start_game');
+  }, [call]);
 
-  const buildSettlement = useCallback(async (vertexKey: string) => {
-    return new Promise<void>((resolve, reject) => {
-      socket.emit('build_settlement', { vertexKey }, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else resolve();
-      });
-    });
-  }, []);
-
-  const buildRoad = useCallback(async (edgeKey: string) => {
-    return new Promise<void>((resolve, reject) => {
-      socket.emit('build_road', { edgeKey }, (res: any) => {
-        if (res.error) { setError(res.error); reject(res.error); }
-        else resolve();
-      });
-    });
-  }, []);
+  const sendAction = useCallback(async (action: GameAction) => {
+    await call('game_action', action);
+  }, [call]);
 
   const clearError = useCallback(() => setError(null), []);
 
   return (
-    <GameContext.Provider value={{ user, room, board, gameState, connected, register, createRoom, joinRoom, leaveRoom, startGame, buildSettlement, buildRoad, error, clearError }}>
+    <GameContext.Provider value={{
+      user, room, board, gameState, connected,
+      register, createRoom, joinRoom, leaveRoom, startGame, sendAction,
+      error, clearError,
+    }}>
       {children}
     </GameContext.Provider>
   );

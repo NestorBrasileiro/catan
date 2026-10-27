@@ -66,18 +66,6 @@ export default function Hex({ hex, cx, cy, size }: HexProps) {
         </>
       )}
 
-      {/* Robber */}
-      {hex.hasRobber && (
-        <text
-          x={cx}
-          y={cy - size * 0.35}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={size * 0.35}
-        >
-          🥷
-        </text>
-      )}
     </g>
   );
 }

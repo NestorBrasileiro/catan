@@ -1,4 +1,4 @@
-import { useGame } from './contexts/GameContext';
+import { useGame } from './contexts/useGame';
 import RegisterForm from './components/Lobby/RegisterForm';
 import LobbyMenu from './components/Lobby/LobbyMenu';
 import RoomView from './components/Lobby/RoomView';

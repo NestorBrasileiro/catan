@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import { Server } from 'socket.io';
+import { GameServer } from './events/socket';
 import { getDb } from './config/database';
 import { registerLobbyEvents } from './events/lobbyEvents';
 import { registerGameEvents } from './events/gameEvents';
@@ -13,7 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
-const io = new Server(server, {
+const io: GameServer = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 

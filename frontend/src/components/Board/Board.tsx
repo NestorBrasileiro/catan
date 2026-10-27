@@ -1,19 +1,21 @@
-import type { BoardData, GameStateSnapshot } from './boardTypes';
-import { axialToPixel, buildCoastlinePath, hexCornerPixel, vertexToPixel, edgeToPixel } from './boardTypes';
+import type { BoardData, GameView } from './boardTypes';
+import { axialToPixel, buildCoastlinePath, hexCornerPixel, vertexKeyToPixel, edgeToPixel } from './boardTypes';
 import Hex from './Hex';
 import './Board.css';
 
 interface BoardProps {
   board: BoardData;
-  gameState: GameStateSnapshot | null;
-  myUserId: string | null;
-  onVertexClick?: (vertexKey: string) => void;
-  onEdgeClick?: (edgeKey: string) => void;
+  game: GameView;
+  highlightVertices: string[];
+  highlightEdges: string[];
+  onVertexClick: (vertexKey: string) => void;
+  onEdgeClick: (edgeKey: string) => void;
 }
 
 const HEX_SIZE = 52;
+const OUTLINE = '#1d1d1d';
 
-export default function Board({ board, gameState, myUserId, onVertexClick, onEdgeClick }: BoardProps) {
+export default function Board({ board, game, highlightVertices, highlightEdges, onVertexClick, onEdgeClick }: BoardProps) {
   const hexPositions = board.hexes.map(hex => {
     const { x, y } = axialToPixel(hex.q, hex.r, HEX_SIZE);
     return { hex, x, y };
@@ -26,16 +28,12 @@ export default function Board({ board, gameState, myUserId, onVertexClick, onEdg
   const padding = HEX_SIZE * 2.5;
   const minX = Math.min(...allXs) - padding;
   const minY = Math.min(...allYs) - padding;
-  const maxX = Math.max(...allXs) + padding;
-  const maxY = Math.max(...allYs) + padding;
-  const width = maxX - minX;
-  const height = maxY - minY;
+  const width = Math.max(...allXs) + padding - minX;
+  const height = Math.max(...allYs) + padding - minY;
 
-  // Determine clickable spots
-  const isMyTurn = gameState?.currentPlayerId === myUserId;
-  const isSetup = gameState?.phase === 'setup';
-  const showVertices = isMyTurn && isSetup && gameState?.setupStep === 'settlement';
-  const showEdges = isMyTurn && isSetup && gameState?.setupStep === 'road';
+  const colorOf = (userId: string) => game.players[userId]?.color ?? '#888';
+  const [robberQ, robberR] = game.robberHex.split(',').map(Number);
+  const robberCenter = axialToPixel(robberQ, robberR, HEX_SIZE);
 
   return (
     <div className="board-container">
@@ -68,85 +66,18 @@ export default function Board({ board, gameState, myUserId, onVertexClick, onEdg
           <Hex key={`${hex.q},${hex.r}`} hex={hex} cx={x} cy={y} size={HEX_SIZE} />
         ))}
 
-        {/* Built roads */}
-        {gameState && board.edges && board.edges.map(edge => {
-          const ownerId = gameState.roads[edge.key];
-          if (!ownerId) return null;
-          const player = gameState.players[ownerId];
-          if (!player) return null;
-          const [v1s, v2s] = edge.vertices;
-          const [q1, r1, d1] = v1s.split(',');
-          const [q2, r2, d2] = v2s.split(',');
-          const p1 = vertexToPixel(+q1, +r1, d1 as 'T' | 'B', HEX_SIZE);
-          const p2 = vertexToPixel(+q2, +r2, d2 as 'T' | 'B', HEX_SIZE);
-          return (
-            <line key={`road-${edge.key}`}
-              x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={player.color} strokeWidth={5} strokeLinecap="round" />
-          );
-        })}
-
-        {/* Built settlements */}
-        {gameState && board.vertices && board.vertices.map(v => {
-          const ownerId = gameState.settlements[v.key];
-          if (!ownerId) return null;
-          const player = gameState.players[ownerId];
-          if (!player) return null;
-          const pos = vertexToPixel(v.q, v.r, v.dir, HEX_SIZE);
-          return (
-            <g key={`sett-${v.key}`}>
-              <rect x={pos.x - 7} y={pos.y - 9} width={14} height={14} rx={2}
-                fill={player.color} stroke="#fff" strokeWidth={1.5} />
-              <polygon points={`${pos.x - 8},${pos.y - 9} ${pos.x},${pos.y - 17} ${pos.x + 8},${pos.y - 9}`}
-                fill={player.color} stroke="#fff" strokeWidth={1.5} />
-            </g>
-          );
-        })}
-
-        {/* Clickable edge spots (only valid positions) */}
-        {showEdges && gameState.availableRoads && gameState.availableRoads.map(edgeKey => {
-          const edge = board.edges?.find(e => e.key === edgeKey);
-          if (!edge) return null;
-          const pos = edgeToPixel(edge.vertices[0], edge.vertices[1], HEX_SIZE);
-          return (
-            <circle key={`edge-spot-${edgeKey}`}
-              cx={pos.x} cy={pos.y} r={6}
-              fill="rgba(255,255,100,0.5)" stroke="#ff0" strokeWidth={1}
-              className="clickable-spot"
-              onClick={() => onEdgeClick?.(edgeKey)} />
-          );
-        })}
-
-        {/* Clickable vertex spots (only valid positions) */}
-        {showVertices && gameState.availableSettlements && gameState.availableSettlements.map(vKey => {
-          const v = board.vertices?.find(vv => vv.key === vKey);
-          if (!v) return null;
-          const pos = vertexToPixel(v.q, v.r, v.dir, HEX_SIZE);
-          return (
-            <circle key={`v-spot-${vKey}`}
-              cx={pos.x} cy={pos.y} r={7}
-              fill="rgba(255,255,100,0.6)" stroke="#ff0" strokeWidth={1.5}
-              className="clickable-spot"
-              onClick={() => onVertexClick?.(vKey)} />
-          );
-        })}
-
         {/* Ports */}
         {board.ports.map((port, i) => {
-          const cornerA = port.edgeDir;
-          const cornerB = (port.edgeDir + 1) % 6;
-          const a = hexCornerPixel(port.hexQ, port.hexR, cornerA, HEX_SIZE);
-          const b = hexCornerPixel(port.hexQ, port.hexR, cornerB, HEX_SIZE);
+          const a = hexCornerPixel(port.hexQ, port.hexR, port.edgeDir, HEX_SIZE);
+          const b = hexCornerPixel(port.hexQ, port.hexR, (port.edgeDir + 1) % 6, HEX_SIZE);
           const midPX = (a.x + b.x) / 2;
           const midPY = (a.y + b.y) / 2;
           const { x: hexCx, y: hexCy } = axialToPixel(port.hexQ, port.hexR, HEX_SIZE);
           const dx = midPX - hexCx;
           const dy = midPY - hexCy;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          const nx = dx / dist;
-          const ny = dy / dist;
-          const shipX = midPX + nx * HEX_SIZE * 0.7;
-          const shipY = midPY + ny * HEX_SIZE * 0.7;
+          const shipX = midPX + (dx / dist) * HEX_SIZE * 0.7;
+          const shipY = midPY + (dy / dist) * HEX_SIZE * 0.7;
           const label = port.type === '3:1' ? '3:1' : '2:1';
           const emoji = port.type !== '3:1' ? portEmoji(port.type) : '⚓';
 
@@ -169,10 +100,66 @@ export default function Board({ board, gameState, myUserId, onVertexClick, onEdg
             </g>
           );
         })}
+
+        {/* Roads: a dark outline under the player's color keeps light colors visible */}
+        {Object.entries(game.roads).map(([edgeKey, owner]) => {
+          const [v1, v2] = edgeKey.split('|');
+          const p1 = vertexKeyToPixel(v1, HEX_SIZE);
+          const p2 = vertexKeyToPixel(v2, HEX_SIZE);
+          return (
+            <g key={`road-${edgeKey}`}>
+              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={OUTLINE} strokeWidth={8} strokeLinecap="round" />
+              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={colorOf(owner)} strokeWidth={5} strokeLinecap="round" />
+            </g>
+          );
+        })}
+
+        {/* Settlements and cities */}
+        {Object.entries(game.buildings).map(([vertexKey, building]) => {
+          const { x, y } = vertexKeyToPixel(vertexKey, HEX_SIZE);
+          const shape = building.type === 'city' ? CITY_SHAPE : SETTLEMENT_SHAPE;
+          return (
+            <polygon key={`building-${vertexKey}`}
+              points={shape.map(([dx, dy]) => `${x + dx},${y + dy}`).join(' ')}
+              fill={colorOf(building.owner)} stroke={OUTLINE} strokeWidth={1.8} strokeLinejoin="round" />
+          );
+        })}
+
+        {/* Robber */}
+        <g transform={`translate(${robberCenter.x - HEX_SIZE * 0.5},${robberCenter.y})`} pointerEvents="none">
+          <ellipse cx={0} cy={12} rx={9} ry={3.5} fill="rgba(0,0,0,0.4)" />
+          <path d="M-7,12 Q-7,-2 0,-4 Q7,-2 7,12 Z" fill="#3d3d3d" stroke="#ddd" strokeWidth={1} />
+          <circle cx={0} cy={-8} r={5.5} fill="#3d3d3d" stroke="#ddd" strokeWidth={1} />
+        </g>
+
+        {/* Clickable spots (only valid positions) */}
+        {highlightEdges.map(edgeKey => {
+          const [v1, v2] = edgeKey.split('|');
+          const pos = edgeToPixel(v1, v2, HEX_SIZE);
+          return (
+            <circle key={`edge-spot-${edgeKey}`}
+              cx={pos.x} cy={pos.y} r={6}
+              className="clickable-spot"
+              onClick={() => onEdgeClick(edgeKey)} />
+          );
+        })}
+        {highlightVertices.map(vertexKey => {
+          const pos = vertexKeyToPixel(vertexKey, HEX_SIZE);
+          return (
+            <circle key={`v-spot-${vertexKey}`}
+              cx={pos.x} cy={pos.y} r={8}
+              className="clickable-spot"
+              onClick={() => onVertexClick(vertexKey)} />
+          );
+        })}
       </svg>
     </div>
   );
 }
+
+// Polygons centered on the vertex
+const SETTLEMENT_SHAPE = [[-7, 7], [7, 7], [7, -3], [0, -10], [-7, -3]];
+const CITY_SHAPE = [[-11, 8], [11, 8], [11, -3], [1, -3], [1, -9], [-5, -15], [-11, -9]];
 
 function portEmoji(type: string): string {
   const map: Record<string, string> = {

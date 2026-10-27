@@ -23,6 +23,7 @@ export interface Vertex {
   dir: 'T' | 'B';
   adjacentHexKeys: string[];    // "q,r" of land hexes touching this vertex
   adjacentVertexKeys: string[]; // vertex keys connected by an edge
+  adjacentEdgeKeys: string[];   // edges that end at this vertex
 }
 
 export interface Edge {
@@ -33,6 +34,7 @@ export interface Edge {
 export interface BoardGraph {
   vertices: Map<string, Vertex>;
   edges: Map<string, Edge>;
+  hexVertices: Map<string, string[]>; // "q,r" → its 6 corner vertex keys
 }
 
 function vKey(q: number, r: number, dir: 'T' | 'B'): string {
@@ -97,6 +99,7 @@ export function buildBoardGraph(hexCoords: { q: number; r: number }[]): BoardGra
           key, q, r, dir,
           adjacentHexKeys: adjHexes,
           adjacentVertexKeys: adjVertices,
+          adjacentEdgeKeys: [],
         });
       }
     }
@@ -118,6 +121,7 @@ export function buildBoardGraph(hexCoords: { q: number; r: number }[]): BoardGra
   for (const v of vertices.values()) {
     for (const neighborKey of v.adjacentVertexKeys) {
       const ek = eKey(v.key, neighborKey);
+      v.adjacentEdgeKeys.push(ek);
       if (!edges.has(ek)) {
         edges.set(ek, {
           key: ek,
@@ -127,12 +131,11 @@ export function buildBoardGraph(hexCoords: { q: number; r: number }[]): BoardGra
     }
   }
 
-  return { vertices, edges };
-}
+  const hexVertices = new Map(hexCoords.map(h => [
+    `${h.q},${h.r}`,
+    [0, 1, 2, 3, 4, 5].map(c => cornerToVertex(h.q, h.r, c)),
+  ]));
 
-// Parse a vertex key back to components
-export function parseVertexKey(key: string): { q: number; r: number; dir: 'T' | 'B' } {
-  const parts = key.split(',');
-  return { q: parseInt(parts[0]), r: parseInt(parts[1]), dir: parts[2] as 'T' | 'B' };
+  return { vertices, edges, hexVertices };
 }
 

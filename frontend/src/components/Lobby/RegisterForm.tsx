@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useGame } from '../../contexts/GameContext';
+import { useGame } from '../../contexts/useGame';
 
 export default function RegisterForm() {
   const { register } = useGame();

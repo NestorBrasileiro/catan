@@ -1,0 +1,153 @@
+.game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .game-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+.status-bar {
+  background: #16213e;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.status-bar.highlight {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.18);
+}
+
+.game-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.panel {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+
+.panel h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa6c4;
+  margin-bottom: 0.6rem;
+}
+
+.muted {
+  color: #9aa6c4;
+  font-size: 0.85rem;
+}
+
+.score-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.score-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+}
+
+.score-list li.current {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.15);
+}
+
+.player-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.dice span {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.dice strong {
+  font-size: 1.4rem;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+button.wide {
+  width: 100%;
+  grid-column: 1 / -1;
+  margin-top: 0.5rem;
+}
+
+.build-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.5rem 0.3rem;
+  font-size: 0.85rem;
+  background: #0f3460;
+  border: 2px solid transparent;
+}
+
+.build-btn.active {
+  border-color: #ff0;
+  background: #1b4b85;
+}
+
+.build-btn .cost {
+  font-size: 0.75rem;
+  letter-spacing: -0.1em;
+}
+
+.hand {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4rem;
+}
+
+.hand-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  background: #0f3460;
+  border-radius: 8px;
+  padding: 0.45rem 0;
+}
+
+.hand-emoji {
+  font-size: 1.3rem;
+}
+
+.pieces {
+  margin-top: 0.6rem;
+}

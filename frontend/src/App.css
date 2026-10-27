@@ -12,7 +12,7 @@ body {
 }
 
 .app {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1rem;
 }
@@ -23,7 +23,7 @@ body {
   align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid #333;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
 
 .app-header h1 {
@@ -37,6 +37,12 @@ body {
   border-radius: 12px;
   padding: 2rem;
   margin-bottom: 1rem;
+}
+
+/* Lobby screens stay narrow; the game view uses the full width */
+main > .card {
+  max-width: 520px;
+  margin: 1rem auto;
 }
 
 .card h2 {

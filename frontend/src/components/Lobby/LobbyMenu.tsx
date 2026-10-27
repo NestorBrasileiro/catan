@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useGame } from '../../contexts/GameContext';
+import { useGame } from '../../contexts/useGame';
 
 export default function LobbyMenu() {
   const { createRoom, joinRoom } = useGame();
@@ -8,14 +8,12 @@ export default function LobbyMenu() {
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [turnTimer, setTurnTimer] = useState(120);
   const [loading, setLoading] = useState(false);
-  const [createdCode, setCreatedCode] = useState('');
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const roomCode = await createRoom(maxPlayers, turnTimer);
-      setCreatedCode(roomCode);
+      await createRoom(maxPlayers, turnTimer);
     } catch { /* handled */ }
     setLoading(false);
   };
@@ -28,10 +26,6 @@ export default function LobbyMenu() {
     } catch { /* handled */ }
     setLoading(false);
   };
-
-  if (createdCode) {
-    return null; // room_state_updated will trigger room view
-  }
 
   if (mode === 'menu') {
     return (
@@ -49,9 +43,9 @@ export default function LobbyMenu() {
         <h2>Criar Sala</h2>
         <form onSubmit={handleCreate}>
           <label>
-            Jogadores (2-6):
+            Jogadores (2-4):
             <select value={maxPlayers} onChange={(e) => setMaxPlayers(Number(e.target.value))}>
-              {[2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+              {[2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
           <label>

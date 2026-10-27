@@ -9,7 +9,6 @@ export interface HexTile {
   r: number;
   terrain: TerrainType;
   number: number | null;
-  hasRobber: boolean;
 }
 
 export interface VertexData {
@@ -34,31 +33,63 @@ export interface Port {
 export interface BoardData {
   hexes: HexTile[];
   ports: Port[];
-  robberPos: { q: number; r: number };
-  vertices?: VertexData[];
-  edges?: EdgeData[];
+  vertices: VertexData[];
+  edges: EdgeData[];
 }
 
-export interface GameStateSnapshot {
-  phase: string;
-  setupRound: number;
-  setupStep: string;
+// ===== Game state as seen by one player (mirrors backend GameView) =====
+
+export type GamePhase = 'setup' | 'playing' | 'finished';
+export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'main';
+export type BuildKind = 'road' | 'settlement' | 'city';
+export type Resources = Record<ResourceType, number>;
+
+export type GameAction =
+  | { type: 'build_settlement'; vertexKey: string }
+  | { type: 'build_road'; edgeKey: string }
+  | { type: 'build_city'; vertexKey: string }
+  | { type: 'roll_dice' }
+  | { type: 'end_turn' };
+
+export interface PlayerView {
+  color: string;
+  victoryPoints: number;
+  resourceCount: number;
+  resources: Resources | null; // only our own hand
+  piecesLeft: Record<BuildKind, number>;
+}
+
+export interface GameView {
+  phase: GamePhase;
+  step: TurnStep;
+  setupRound: 1 | 2;
   currentPlayerId: string;
   playerOrder: string[];
-  players: Record<string, {
-    color: string;
-    resources: Record<ResourceType, number>;
-    settlements: string[];
-    cities: string[];
-    roads: string[];
-    victoryPoints: number;
-  }>;
-  settlements: Record<string, string>;
+  players: Record<string, PlayerView>;
+  buildings: Record<string, { owner: string; type: 'settlement' | 'city' }>;
   roads: Record<string, string>;
-  // Available spots (only sent to the current player)
-  availableSettlements?: string[];
-  availableRoads?: string[];
+  robberHex: string;
+  dice: [number, number] | null;
+  winnerId: string | null;
+  legal: { settlements: string[]; roads: string[]; cities: string[] } | null;
 }
+
+export const RESOURCE_ORDER: ResourceType[] = ['wood', 'brick', 'wool', 'wheat', 'ore'];
+
+export const RESOURCE_INFO: Record<ResourceType, { emoji: string; label: string }> = {
+  wood: { emoji: '🌲', label: 'Madeira' },
+  brick: { emoji: '🧱', label: 'Tijolo' },
+  wool: { emoji: '🐑', label: 'Ovelha' },
+  wheat: { emoji: '🌾', label: 'Trigo' },
+  ore: { emoji: '⛰️', label: 'Minério' },
+};
+
+// Display only — the server is the authority on costs
+export const BUILD_COSTS: Record<BuildKind, Partial<Resources>> = {
+  road: { wood: 1, brick: 1 },
+  settlement: { wood: 1, brick: 1, wool: 1, wheat: 1 },
+  city: { wheat: 2, ore: 3 },
+};
 
 // Terrain colors
 export const TERRAIN_COLORS: Record<TerrainType, string> = {
@@ -198,12 +229,15 @@ export function vertexToPixel(q: number, r: number, dir: 'T' | 'B', size: number
   }
 }
 
-// Compute pixel midpoint for an edge given its two vertex keys
-export function edgeToPixel(v1Key: string, v2Key: string, size: number): { x: number; y: number } {
-  const [q1s, r1s, d1] = v1Key.split(',');
-  const [q2s, r2s, d2] = v2Key.split(',');
-  const p1 = vertexToPixel(+q1s, +r1s, d1 as 'T' | 'B', size);
-  const p2 = vertexToPixel(+q2s, +r2s, d2 as 'T' | 'B', size);
-  return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+// Pixel position of a vertex key "q,r,T|B"
+export function vertexKeyToPixel(key: string, size: number): { x: number; y: number } {
+  const [q, r, dir] = key.split(',');
+  return vertexToPixel(+q, +r, dir as 'T' | 'B', size);
 }
 
+// Compute pixel midpoint for an edge given its two vertex keys
+export function edgeToPixel(v1Key: string, v2Key: string, size: number): { x: number; y: number } {
+  const p1 = vertexKeyToPixel(v1Key, size);
+  const p2 = vertexKeyToPixel(v2Key, size);
+  return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+}
