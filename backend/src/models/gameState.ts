@@ -1,12 +1,17 @@
 import { randomInt } from 'crypto';
 import { BoardData, PortType, RESOURCES, ResourceType, TERRAIN_TO_RESOURCE } from '../utils/boardGenerator';
 import { BoardGraph, buildBoardGraph } from '../utils/boardGraph';
+import { longestRoad } from '../utils/longestRoad';
 
 export type GamePhase = 'setup' | 'playing' | 'finished';
 // What has to happen next. 'discard' waits on every player who owes cards, not only the current one.
-export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'main';
+export type TurnStep =
+  | 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'road_building' | 'main';
 export type BuildingType = 'settlement' | 'city';
 export type Resources = Record<ResourceType, number>;
+export type DevCardType = 'knight' | 'victory_point' | 'road_building' | 'year_of_plenty' | 'monopoly';
+export type PlayableDevCard = Exclude<DevCardType, 'victory_point'>; // point cards are never "played"
+export type DevCards = Record<DevCardType, number>;
 
 export type GameAction =
   | { type: 'build_settlement'; vertexKey: string }
@@ -21,13 +26,25 @@ export type GameAction =
   | { type: 'respond_trade'; accept: boolean }
   | { type: 'confirm_trade'; partnerId: string }
   | { type: 'cancel_trade' }
+  | { type: 'buy_dev_card' }
+  | { type: 'play_knight' }
+  | { type: 'play_road_building' }
+  | { type: 'play_year_of_plenty'; resources: [ResourceType, ResourceType] }
+  | { type: 'play_monopoly'; resource: ResourceType }
   | { type: 'end_turn' };
 
 export const COSTS = {
   road: { wood: 1, brick: 1 },
   settlement: { wood: 1, brick: 1, wool: 1, wheat: 1 },
   city: { wheat: 2, ore: 3 },
+  devCard: { wool: 1, wheat: 1, ore: 1 },
 } satisfies Record<string, Partial<Resources>>;
+
+export const DEV_DECK: DevCards = { knight: 14, victory_point: 5, road_building: 2, year_of_plenty: 2, monopoly: 2 };
+const PLAYABLE_DEV_CARDS: PlayableDevCard[] = ['knight', 'road_building', 'year_of_plenty', 'monopoly'];
+export const LARGEST_ARMY_MIN = 3;
+export const LONGEST_ROAD_MIN = 5;
+const AWARD_POINTS = 2;
 
 export const PIECE_LIMITS = { road: 15, settlement: 5, city: 4 };
 export const BANK_SIZE = 19;
@@ -41,6 +58,7 @@ const STEP_HINT: Record<TurnStep, string> = {
   discard: 'Aguardando os jogadores descartarem.',
   move_robber: 'Mova o ladrão primeiro.',
   steal: 'Escolha de quem roubar primeiro.',
+  road_building: 'Coloque as estradas grátis primeiro.',
   main: 'Os dados já foram rolados.',
 };
 
@@ -52,14 +70,22 @@ interface Building {
 interface PlayerState {
   color: string;
   resources: Resources;
+  devCards: DevCards;
+  newDevCards: DevCards; // bought this turn: can't be played until the next one
+  knightsPlayed: number;
 }
 
 export interface PlayerView {
   color: string;
-  victoryPoints: number;
+  victoryPoints: number;       // others only see public points; hidden point cards count for yourself
   resourceCount: number;
   resources: Resources | null; // only filled for the viewer's own hand
   piecesLeft: { road: number; settlement: number; city: number };
+  devCardCount: number;
+  devCards: DevCards | null;   // own cards only
+  newDevCards: DevCards | null;
+  knightsPlayed: number;
+  roadLength: number;
 }
 
 export interface LegalMoves {
@@ -69,6 +95,8 @@ export interface LegalMoves {
   robberHexes: string[];
   victims: string[];
   bankRatios: Resources; // cards of each kind needed for 1 from the bank (4, or 3/2 with ports)
+  canBuyDevCard: boolean;
+  devCardsToPlay: PlayableDevCard[];
 }
 
 // The current player's open offer to the table
@@ -106,6 +134,11 @@ export interface GameView {
   discards: Record<string, number>;    // userId → cards still owed after a 7
   lastRobbery: Robbery | null;
   tradeOffer: TradeOfferView | null;   // public, like an offer made out loud at the table
+  devDeckCount: number;
+  devCardPlayed: boolean;              // the current player already used their one card this turn
+  freeRoadsLeft: number;               // during Road Building
+  largestArmyHolder: string | null;
+  longestRoadHolder: string | null;
   legal: LegalMoves | null;            // only for the current player
 }
 
@@ -127,6 +160,19 @@ function parseCards(cards: unknown): Resources | null {
     parsed[r] = n as number;
   }
   return parsed;
+}
+
+function noDevCards(): DevCards {
+  return { knight: 0, victory_point: 0, road_building: 0, year_of_plenty: 0, monopoly: 0 };
+}
+
+function shuffledDeck(): DevCardType[] {
+  const deck = (Object.keys(DEV_DECK) as DevCardType[]).flatMap(card => Array<DevCardType>(DEV_DECK[card]).fill(card));
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
 }
 
 function rollTwoDice(): [number, number] {
@@ -152,7 +198,13 @@ export class GameState {
   lastRobbery: Robbery | null = null;
   tradeOffer: TradeOffer | null = null;
   readonly ports = new Map<string, PortType>(); // vertexKey → port it gives access to
+  devDeck: DevCardType[] = shuffledDeck(); // drawn from the end
+  devCardPlayed = false;
+  freeRoadsLeft = 0;
+  largestArmyHolder: string | null = null;
+  longestRoadHolder: string | null = null;
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
+  private resumeStep: TurnStep = 'main'; // where the turn continues after the robber or Road Building
 
   constructor(
     board: BoardData,
@@ -163,7 +215,9 @@ export class GameState {
     this.graph = buildBoardGraph(board.hexes);
     this.playerOrder = playerInfos.map(p => p.userId);
     for (const p of playerInfos) {
-      this.players.set(p.userId, { color: p.color, resources: resources(0) });
+      this.players.set(p.userId, {
+        color: p.color, resources: resources(0), devCards: noDevCards(), newDevCards: noDevCards(), knightsPlayed: 0,
+      });
     }
     const desert = board.hexes.find(h => h.terrain === 'desert')!;
     this.robberHex = `${desert.q},${desert.r}`;
@@ -181,6 +235,14 @@ export class GameState {
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
+    const err = this.dispatch(userId, action);
+    // A player wins the moment they have 10 points during their own turn (hidden points included),
+    // which also covers starting a turn with points gained during someone else's
+    if (!err && this.phase === 'playing') this.checkVictory(this.currentPlayerId);
+    return err;
+  }
+
+  private dispatch(userId: string, action: GameAction): string | null {
     // Discarding after a 7 and answering a trade offer are the actions taken outside one's own turn
     if (action?.type === 'discard') return this.discard(userId, action.resources);
     if (action?.type === 'respond_trade') return this.respondTrade(userId, action.accept);
@@ -197,6 +259,11 @@ export class GameState {
       case 'propose_trade': return this.proposeTrade(userId, action.give, action.get);
       case 'confirm_trade': return this.confirmTrade(userId, action.partnerId);
       case 'cancel_trade': return this.cancelTrade();
+      case 'buy_dev_card': return this.buyDevCard(userId);
+      case 'play_knight': return this.playKnight(userId);
+      case 'play_road_building': return this.playRoadBuilding(userId);
+      case 'play_year_of_plenty': return this.playYearOfPlenty(userId, action.resources);
+      case 'play_monopoly': return this.playMonopoly(userId, action.resource);
       case 'end_turn': return this.endTurn();
       default: return 'Ação inválida.';
     }
@@ -239,15 +306,18 @@ export class GameState {
 
     this.pay(userId, COSTS.settlement);
     this.buildings.set(vertexKey, { owner: userId, type: 'settlement' });
-    this.checkVictory(userId);
+    this.updateLongestRoad(); // may cut an opponent's road
     return null;
   }
 
   // ===== ROADS =====
 
-  private roadError(userId: string, edgeKey: string): string | null {
-    const stepError = this.stepError(this.phase === 'setup' ? 'place_road' : 'main');
-    if (stepError) return stepError;
+  // `free`: placed by Road Building, so no cost and no need to be in the main step
+  private roadError(userId: string, edgeKey: string, free = this.step === 'road_building'): string | null {
+    if (!free) {
+      const stepError = this.stepError(this.phase === 'setup' ? 'place_road' : 'main');
+      if (stepError) return stepError;
+    }
 
     const edge = this.graph.edges.get(edgeKey);
     if (!edge) return 'Caminho inválido.';
@@ -263,8 +333,12 @@ export class GameState {
       return 'A estrada precisa estar ligada a uma estrada ou construção sua.';
     }
     if (this.countRoads(userId) >= PIECE_LIMITS.road) return 'Você não tem mais estradas disponíveis.';
-    if (!this.canAfford(userId, COSTS.road)) return 'Recursos insuficientes.';
+    if (!free && !this.canAfford(userId, COSTS.road)) return 'Recursos insuficientes.';
     return null;
+  }
+
+  private freeRoadSpots(userId: string): string[] {
+    return [...this.graph.edges.keys()].filter(e => !this.roadError(userId, e, true));
   }
 
   // A road can extend from a vertex with the player's own building, or from the player's
@@ -288,8 +362,18 @@ export class GameState {
       return null;
     }
 
-    this.pay(userId, COSTS.road);
-    this.roads.set(edgeKey, userId);
+    if (this.step === 'road_building') {
+      this.roads.set(edgeKey, userId);
+      this.freeRoadsLeft--;
+      if (this.freeRoadsLeft === 0 || this.freeRoadSpots(userId).length === 0) {
+        this.freeRoadsLeft = 0;
+        this.step = this.resumeStep;
+      }
+    } else {
+      this.pay(userId, COSTS.road);
+      this.roads.set(edgeKey, userId);
+    }
+    this.updateLongestRoad();
     return null;
   }
 
@@ -315,7 +399,6 @@ export class GameState {
 
     this.pay(userId, COSTS.city);
     this.buildings.set(vertexKey, { owner: userId, type: 'city' });
-    this.checkVictory(userId);
     return null;
   }
 
@@ -343,6 +426,7 @@ export class GameState {
       const size = handSize(p.resources);
       if (size > MAX_SAFE_HAND) this.pendingDiscards.set(id, Math.floor(size / 2));
     }
+    this.resumeStep = 'main';
     this.step = this.pendingDiscards.size > 0 ? 'discard' : 'move_robber';
   }
 
@@ -371,7 +455,7 @@ export class GameState {
     this.robberHex = hexKey;
     const victims = this.robberVictims(userId);
     if (victims.length === 1) this.stealFrom(userId, victims[0]);
-    this.step = victims.length > 1 ? 'steal' : 'main';
+    this.step = victims.length > 1 ? 'steal' : this.resumeStep;
     return null;
   }
 
@@ -381,7 +465,7 @@ export class GameState {
     if (!this.robberVictims(userId).includes(victimId)) return 'Não é possível roubar desse jogador.';
 
     this.stealFrom(userId, victimId);
-    this.step = 'main';
+    this.step = this.resumeStep;
     return null;
   }
 
@@ -514,10 +598,129 @@ export class GameState {
     }
   }
 
+  // ===== DEVELOPMENT CARDS =====
+
+  private buyDevCard(userId: string): string | null {
+    const err = this.stepError('main');
+    if (err) return err;
+    if (this.devDeck.length === 0) return 'Não há mais cartas de desenvolvimento.';
+    if (!this.canAfford(userId, COSTS.devCard)) return 'Recursos insuficientes.';
+
+    this.pay(userId, COSTS.devCard);
+    const card = this.devDeck.pop()!;
+    const player = this.players.get(userId)!;
+    player.devCards[card]++;
+    player.newDevCards[card]++;
+    return null;
+  }
+
+  // Rules shared by every card: on your turn before or after rolling, one per turn, not one bought this turn
+  private devCardError(userId: string, card: PlayableDevCard): string | null {
+    if (this.step !== 'roll' && this.step !== 'main') return 'Termine a ação atual antes de jogar uma carta.';
+    if (this.devCardPlayed) return 'Só dá para jogar uma carta de desenvolvimento por turno.';
+    const player = this.players.get(userId)!;
+    if (player.devCards[card] === 0) return 'Você não tem essa carta.';
+    if (player.devCards[card] === player.newDevCards[card]) {
+      return 'Cartas compradas neste turno só podem ser jogadas a partir do próximo.';
+    }
+    return null;
+  }
+
+  private spendDevCard(userId: string, card: PlayableDevCard) {
+    this.players.get(userId)!.devCards[card]--;
+    this.devCardPlayed = true;
+  }
+
+  // Knight: move the robber and steal, as on a 7 but without discards
+  private playKnight(userId: string): string | null {
+    const err = this.devCardError(userId, 'knight');
+    if (err) return err;
+
+    this.spendDevCard(userId, 'knight');
+    this.players.get(userId)!.knightsPlayed++;
+    this.updateLargestArmy(userId);
+    this.resumeStep = this.step;
+    this.step = 'move_robber';
+    return null;
+  }
+
+  private playRoadBuilding(userId: string): string | null {
+    const err = this.devCardError(userId, 'road_building');
+    if (err) return err;
+    if (this.freeRoadSpots(userId).length === 0) return 'Não há onde construir estradas.';
+
+    this.spendDevCard(userId, 'road_building');
+    this.freeRoadsLeft = Math.min(2, PIECE_LIMITS.road - this.countRoads(userId));
+    this.resumeStep = this.step;
+    this.step = 'road_building';
+    return null;
+  }
+
+  // Year of Plenty: any 2 resources from the bank
+  private playYearOfPlenty(userId: string, picks: unknown): string | null {
+    const err = this.devCardError(userId, 'year_of_plenty');
+    if (err) return err;
+    if (!Array.isArray(picks) || picks.length !== 2 || !picks.every(r => RESOURCES.includes(r))) {
+      return 'Escolha 2 recursos.';
+    }
+    const wanted = resources(0);
+    for (const r of picks as ResourceType[]) wanted[r]++;
+    if (RESOURCES.some(r => this.bank[r] < wanted[r])) return 'O banco não tem esses recursos.';
+
+    this.spendDevCard(userId, 'year_of_plenty');
+    for (const r of RESOURCES) this.take(userId, r, wanted[r]);
+    return null;
+  }
+
+  // Monopoly: every other player hands over all their cards of one resource
+  private playMonopoly(userId: string, resource: unknown): string | null {
+    const err = this.devCardError(userId, 'monopoly');
+    if (err) return err;
+    if (!RESOURCES.includes(resource as ResourceType)) return 'Recurso inválido.';
+
+    this.spendDevCard(userId, 'monopoly');
+    const r = resource as ResourceType;
+    const hand = this.players.get(userId)!.resources;
+    for (const [id, other] of this.players) {
+      if (id === userId) continue;
+      hand[r] += other.resources[r];
+      other.resources[r] = 0;
+    }
+    return null;
+  }
+
+  // ===== AWARDS (2 points each) =====
+
+  // First to 3 knights takes Largest Army; someone else needs strictly more to take it away
+  private updateLargestArmy(userId: string) {
+    const holder = this.largestArmyHolder;
+    const toBeat = holder ? this.players.get(holder)!.knightsPlayed : LARGEST_ARMY_MIN - 1;
+    if (holder !== userId && this.players.get(userId)!.knightsPlayed > toBeat) this.largestArmyHolder = userId;
+  }
+
+  // Runs after every road or settlement, since either can lengthen a road or cut one.
+  // The holder keeps the card while still (tied for) the longest; otherwise it goes to a single
+  // longest road of 5+, or is set aside when nobody qualifies or several players tie.
+  private updateLongestRoad() {
+    const lengths = new Map(this.playerOrder.map(id => [id, this.roadLength(id)]));
+    const best = Math.max(...lengths.values());
+    const holder = this.longestRoadHolder;
+    if (holder && lengths.get(holder)! >= LONGEST_ROAD_MIN && lengths.get(holder) === best) return;
+
+    const leaders = [...lengths].filter(([, length]) => length === best && length >= LONGEST_ROAD_MIN);
+    this.longestRoadHolder = leaders.length === 1 ? leaders[0][0] : null;
+  }
+
+  roadLength(userId: string): number {
+    return longestRoad(this.graph, this.roads, this.buildings, userId);
+  }
+
   private endTurn(): string | null {
     const err = this.stepError('main');
     if (err) return err;
 
+    this.players.get(this.currentPlayerId)!.newDevCards = noDevCards();
+    this.devCardPlayed = false;
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
     this.step = 'roll';
     this.lastRobbery = null;
@@ -595,8 +798,16 @@ export class GameState {
     return count;
   }
 
+  // What everyone can see on the table
+  publicVictoryPoints(userId: string): number {
+    return this.countBuildings(userId, 'settlement')
+      + 2 * this.countBuildings(userId, 'city')
+      + (this.largestArmyHolder === userId ? AWARD_POINTS : 0)
+      + (this.longestRoadHolder === userId ? AWARD_POINTS : 0);
+  }
+
   victoryPoints(userId: string): number {
-    return this.countBuildings(userId, 'settlement') + 2 * this.countBuildings(userId, 'city');
+    return this.publicVictoryPoints(userId) + this.players.get(userId)!.devCards.victory_point;
   }
 
   legalMoves(userId: string): LegalMoves {
@@ -608,23 +819,33 @@ export class GameState {
       robberHexes: this.step === 'move_robber' ? [...this.graph.hexVertices.keys()].filter(h => h !== this.robberHex) : [],
       victims: this.step === 'steal' ? this.robberVictims(userId) : [],
       bankRatios: this.tradeRatios(userId),
+      canBuyDevCard: this.step === 'main' && this.devDeck.length > 0 && this.canAfford(userId, COSTS.devCard),
+      devCardsToPlay: PLAYABLE_DEV_CARDS.filter(card => !this.devCardError(userId, card)
+        && (card !== 'road_building' || this.freeRoadSpots(userId).length > 0)),
     };
   }
 
-  // What one player is allowed to see: other players' hands are reduced to a card count
+  // What one player is allowed to see: other players' hands and development cards are reduced
+  // to counts, and their hidden point cards stay hidden until the game ends
   toView(viewerId: string): GameView {
     const players: Record<string, PlayerView> = {};
     for (const [id, p] of this.players) {
+      const own = id === viewerId;
       players[id] = {
         color: p.color,
-        victoryPoints: this.victoryPoints(id),
+        victoryPoints: own || this.phase === 'finished' ? this.victoryPoints(id) : this.publicVictoryPoints(id),
         resourceCount: handSize(p.resources),
-        resources: id === viewerId ? { ...p.resources } : null,
+        resources: own ? { ...p.resources } : null,
         piecesLeft: {
           road: PIECE_LIMITS.road - this.countRoads(id),
           settlement: PIECE_LIMITS.settlement - this.countBuildings(id, 'settlement'),
           city: PIECE_LIMITS.city - this.countBuildings(id, 'city'),
         },
+        devCardCount: Object.values(p.devCards).reduce((a, b) => a + b, 0),
+        devCards: own ? { ...p.devCards } : null,
+        newDevCards: own ? { ...p.newDevCards } : null,
+        knightsPlayed: p.knightsPlayed,
+        roadLength: this.roadLength(id),
       };
     }
 
@@ -651,6 +872,11 @@ export class GameState {
         get: { ...this.tradeOffer.get },
         responses: Object.fromEntries(this.tradeOffer.responses),
       },
+      devDeckCount: this.devDeck.length,
+      devCardPlayed: this.devCardPlayed,
+      freeRoadsLeft: this.freeRoadsLeft,
+      largestArmyHolder: this.largestArmyHolder,
+      longestRoadHolder: this.longestRoadHolder,
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
     };
   }

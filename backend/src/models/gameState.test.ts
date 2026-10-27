@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BoardData, RESOURCES, generateBoard } from '../utils/boardGenerator';
-import { BANK_SIZE, GameAction, GameState, Resources } from './gameState';
+import { BANK_SIZE, DevCardType, GameAction, GameState, Resources } from './gameState';
 
 const PLAYERS = [
   { userId: 'A', color: 'red' },
@@ -522,5 +522,263 @@ describe('comércio entre jogadores', () => {
     ok(game, 'A', { type: 'end_turn' });
     assert.equal(game.tradeOffer, null);
     assert.equal(game.apply('C', { type: 'respond_trade', accept: true }), 'Não há oferta de troca.');
+  });
+});
+
+// Rolls (a 5) and ends the turn for whoever is playing, n times
+function passTurns(game: GameState, n: number) {
+  for (let i = 0; i < n; i++) {
+    const p = game.currentPlayerId;
+    if (game.step === 'roll') ok(game, p, { type: 'roll_dice' });
+    ok(game, p, { type: 'end_turn' });
+  }
+}
+
+function holdCards(game: GameState, userId: string, cards: Partial<Record<DevCardType, number>>) {
+  Object.assign(game.players.get(userId)!.devCards, cards);
+}
+
+// Moves the robber to a hex nobody touches
+function parkRobber(game: GameState) {
+  const p = game.currentPlayerId;
+  const quiet = game.legalMoves(p).robberHexes.find(h =>
+    game.graph.hexVertices.get(h)!.every(v => !game.buildings.has(v)))!;
+  ok(game, p, { type: 'move_robber', hexKey: quiet });
+}
+
+describe('cartas de desenvolvimento', () => {
+  test('comprar custa ⛰️🐑🌾, tira do topo do baralho e só depois de rolar', () => {
+    const { game } = newGame();
+    playSetup(game);
+    assert.equal(game.apply('A', { type: 'buy_dev_card' }), 'Role os dados primeiro.');
+    ok(game, 'A', { type: 'roll_dice' });
+    for (const p of game.players.values()) p.resources = { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 };
+    assert.equal(game.devDeck.length, 25);
+    assert.equal(game.apply('A', { type: 'buy_dev_card' }), 'Recursos insuficientes.');
+
+    game.devDeck = ['monopoly', 'knight'];
+    give(game, 'A', { ore: 1, wool: 1, wheat: 1 });
+    const bankOre = game.bank.ore;
+    ok(game, 'A', { type: 'buy_dev_card' });
+    assert.equal(game.players.get('A')!.devCards.knight, 1);
+    assert.equal(game.bank.ore, bankOre + 1);
+    assert.deepEqual(game.toView('B').players.A.devCards, null);
+    assert.equal(game.toView('B').players.A.devCardCount, 1);
+    assert.equal(game.toView('B').devDeckCount, 1);
+
+    game.devDeck = [];
+    give(game, 'A', { ore: 1, wool: 1, wheat: 1 });
+    assert.equal(game.apply('A', { type: 'buy_dev_card' }), 'Não há mais cartas de desenvolvimento.');
+  });
+
+  test('carta comprada só joga no próximo turno, e uma carta por turno', () => {
+    const { game } = emptyMainPhase();
+    game.devDeck = ['knight', 'knight'];
+    give(game, 'A', { ore: 2, wool: 2, wheat: 2 });
+    ok(game, 'A', { type: 'buy_dev_card' });
+    assert.equal(game.apply('A', { type: 'play_knight' }), 'Cartas compradas neste turno só podem ser jogadas a partir do próximo.');
+    assert.deepEqual(game.legalMoves('A').devCardsToPlay, []);
+    ok(game, 'A', { type: 'buy_dev_card' });
+    passTurns(game, 3);
+
+    assert.equal(game.currentPlayerId, 'A');
+    assert.deepEqual(game.legalMoves('A').devCardsToPlay, ['knight']);
+    assert.equal(game.apply('A', { type: 'play_monopoly', resource: 'ore' }), 'Você não tem essa carta.');
+    ok(game, 'A', { type: 'play_knight' });
+    parkRobber(game);
+    assert.equal(game.apply('A', { type: 'play_knight' }), 'Só dá para jogar uma carta de desenvolvimento por turno.');
+  });
+
+  test('cavaleiro antes de rolar: move o ladrão sem descarte e volta para a rolagem', () => {
+    const { game } = emptyMainPhase();
+    passTurns(game, 3); // back to A, before rolling
+    holdCards(game, 'A', { knight: 1 });
+    const corner = game.graph.hexVertices.get(HILL)![0];
+    game.buildings.set(corner, { owner: 'B', type: 'settlement' });
+    give(game, 'B', { wool: 12 });
+
+    ok(game, 'A', { type: 'play_knight' });
+    assert.equal(game.step, 'move_robber');
+    assert.deepEqual(game.toView('A').discards, {});
+    ok(game, 'A', { type: 'move_robber', hexKey: HILL });
+    assert.equal(game.players.get('A')!.resources.wool, 1);
+    assert.equal(game.step, 'roll');
+    assert.equal(game.players.get('A')!.knightsPlayed, 1);
+    ok(game, 'A', { type: 'roll_dice' });
+  });
+
+  test('cavaleiro depois de rolar volta para a construção', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { knight: 1 });
+    ok(game, 'A', { type: 'play_knight' });
+    parkRobber(game);
+    assert.equal(game.step, 'main');
+  });
+
+  test('Construção de Estradas: 2 estradas grátis e o turno continua de onde parou', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { road_building: 1 });
+    assert.equal(game.apply('A', { type: 'play_road_building' }), 'Não há onde construir estradas.');
+
+    const [v0, v1, v2] = path(game, game.graph.hexVertices.get(HILL)![0], 2);
+    game.buildings.set(v0, { owner: 'A', type: 'settlement' });
+    ok(game, 'A', { type: 'play_road_building' });
+    assert.equal(game.step, 'road_building');
+    assert.equal(game.toView('B').freeRoadsLeft, 2);
+    assert.equal(game.apply('A', { type: 'end_turn' }), 'Coloque as estradas grátis primeiro.');
+
+    ok(game, 'A', { type: 'build_road', edgeKey: edgeBetween(game, v0, v1) });
+    ok(game, 'A', { type: 'build_road', edgeKey: edgeBetween(game, v1, v2) });
+    assert.equal(game.step, 'main');
+    assert.deepEqual(game.players.get('A')!.resources, { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 });
+    assert.equal(game.toView('A').players.A.piecesLeft.road, 13);
+  });
+
+  test('Construção de Estradas com uma só peça sobrando coloca uma estrada', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { road_building: 1 });
+    const [v0, v1] = path(game, game.graph.hexVertices.get(HILL)![0], 1);
+    game.buildings.set(v0, { owner: 'A', type: 'settlement' });
+    const elsewhere = [...game.graph.edges.keys()].filter(e => !game.graph.edges.get(e)!.vertices.some(v => v === v0 || v === v1));
+    for (const e of elsewhere.slice(0, 14)) game.roads.set(e, 'A');
+
+    ok(game, 'A', { type: 'play_road_building' });
+    assert.equal(game.freeRoadsLeft, 1);
+    ok(game, 'A', { type: 'build_road', edgeKey: edgeBetween(game, v0, v1) });
+    assert.equal(game.step, 'main');
+  });
+
+  test('Invenção: 2 recursos quaisquer do banco', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { year_of_plenty: 2 });
+    assert.equal(game.apply('A', { type: 'play_year_of_plenty', resources: ['ore'] as never }), 'Escolha 2 recursos.');
+    assert.equal(game.apply('A', { type: 'play_year_of_plenty', resources: ['ore', 'gold'] as never }), 'Escolha 2 recursos.');
+    game.bank.ore = 1;
+    assert.equal(game.apply('A', { type: 'play_year_of_plenty', resources: ['ore', 'ore'] }), 'O banco não tem esses recursos.');
+    game.bank.ore = BANK_SIZE;
+    ok(game, 'A', { type: 'play_year_of_plenty', resources: ['ore', 'ore'] });
+    assert.equal(game.players.get('A')!.resources.ore, 2);
+    assert.equal(game.bank.ore, BANK_SIZE - 2);
+  });
+
+  test('Monopólio: todos entregam aquele recurso', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { monopoly: 1 });
+    give(game, 'B', { wheat: 3, ore: 1 });
+    give(game, 'C', { wheat: 2 });
+    assert.equal(game.apply('A', { type: 'play_monopoly', resource: 'gold' as never }), 'Recurso inválido.');
+    ok(game, 'A', { type: 'play_monopoly', resource: 'wheat' });
+    assert.equal(game.players.get('A')!.resources.wheat, 5);
+    assert.equal(game.players.get('B')!.resources.wheat, 0);
+    assert.equal(game.players.get('B')!.resources.ore, 1);
+    assert.equal(game.players.get('C')!.resources.wheat, 0);
+  });
+});
+
+describe('Maior Exército', () => {
+  test('3 cavaleiros dão 2 pontos; só tira quem tiver mais', () => {
+    const { game } = emptyMainPhase();
+    game.players.get('A')!.knightsPlayed = 2;
+    holdCards(game, 'A', { knight: 1 });
+    ok(game, 'A', { type: 'play_knight' });
+    parkRobber(game);
+    assert.equal(game.largestArmyHolder, 'A');
+    assert.equal(game.victoryPoints('A'), 2);
+
+    ok(game, 'A', { type: 'end_turn' });
+    game.players.get('B')!.knightsPlayed = 2;
+    holdCards(game, 'B', { knight: 2 });
+    ok(game, 'B', { type: 'play_knight' }); // 3 = tie: A keeps it
+    parkRobber(game);
+    assert.equal(game.largestArmyHolder, 'A');
+
+    passTurns(game, 3);
+    ok(game, 'B', { type: 'play_knight' }); // 4 beats 3
+    parkRobber(game);
+    assert.equal(game.largestArmyHolder, 'B');
+    assert.equal(game.victoryPoints('A'), 0);
+  });
+});
+
+describe('Maior Estrada', () => {
+  // Roads along a hex's border from corner 0 through `count` edges
+  function roadsAround(game: GameState, hexKey: string, owner: string, count: number) {
+    const c = game.graph.hexVertices.get(hexKey)!;
+    for (let i = 0; i < count; i++) game.roads.set(edgeBetween(game, c[i], c[(i + 1) % 6]), owner);
+  }
+
+  test('primeira de 5 ganha, empate mantém, aldeia que corta passa o prêmio', () => {
+    const { game } = emptyMainPhase();
+    const top = game.graph.hexVertices.get('0,-2')!;
+    const south = game.graph.hexVertices.get('0,1')!;
+
+    // B: 5 roads around the south hex. A: settlement + 4 roads around the top hex, then builds a 5th
+    roadsAround(game, '0,1', 'B', 5);
+    game.buildings.set(top[0], { owner: 'A', type: 'settlement' });
+    roadsAround(game, '0,-2', 'A', 3);
+    give(game, 'A', { wood: 3, brick: 3, wool: 1, wheat: 1 });
+    ok(game, 'A', { type: 'build_road', edgeKey: edgeBetween(game, top[3], top[4]) });
+    assert.equal(game.longestRoadHolder, 'B'); // A has 4, B has 5
+    ok(game, 'A', { type: 'build_road', edgeKey: edgeBetween(game, top[4], top[5]) });
+    assert.equal(game.longestRoadHolder, 'B'); // 5 vs 5: holder keeps it
+    assert.equal(game.toView('C').players.B.victoryPoints, 2);
+
+    // A reaches the middle of B's road from outside and settles there, cutting it 2 + 3
+    const outside = game.graph.vertices.get(south[2])!.adjacentVertexKeys.find(v => !south.includes(v))!;
+    game.roads.set(edgeBetween(game, outside, south[2]), 'A');
+    ok(game, 'A', { type: 'build_settlement', vertexKey: south[2] });
+    assert.equal(game.roadLength('B'), 3);
+    assert.equal(game.longestRoadHolder, 'A');
+    assert.equal(game.toView('C').players.A.roadLength, 5);
+  });
+
+  test('se o dono perde a liderança e outros empatam, ninguém fica com o prêmio', () => {
+    const { game } = emptyMainPhase();
+    const south = game.graph.hexVertices.get('0,1')!;
+    roadsAround(game, '0,1', 'B', 5);
+    give(game, 'A', { wood: 1, brick: 1, wool: 1, wheat: 1 });
+    const outside = game.graph.vertices.get(south[2])!.adjacentVertexKeys.find(v => !south.includes(v))!;
+    game.roads.set(edgeBetween(game, outside, south[2]), 'A');
+    game.longestRoadHolder = 'B';
+    roadsAround(game, '0,-2', 'A', 5);
+    roadsAround(game, '2,-2', 'C', 5);
+
+    ok(game, 'A', { type: 'build_settlement', vertexKey: south[2] });
+    assert.equal(game.longestRoadHolder, null);
+  });
+});
+
+describe('pontos escondidos e vitória', () => {
+  test('carta de ponto conta só para o dono até o fim do jogo', () => {
+    const { game } = emptyMainPhase();
+    holdCards(game, 'A', { victory_point: 1 });
+    game.buildings.set(game.graph.hexVertices.get(HILL)![0], { owner: 'A', type: 'settlement' });
+    assert.equal(game.toView('A').players.A.victoryPoints, 2);
+    assert.equal(game.toView('B').players.A.victoryPoints, 1);
+    assert.deepEqual(game.legalMoves('A').devCardsToPlay, []); // point cards are never played
+  });
+
+  test('comprar o ponto que faz 10 vence na hora e revela os pontos', () => {
+    const { game } = emptyMainPhase();
+    const spots = [...game.graph.vertices.keys()].filter((_, i) => i % 8 === 0).slice(0, 5);
+    spots.forEach((v, i) => game.buildings.set(v, { owner: 'A', type: i < 4 ? 'city' : 'settlement' }));
+    assert.equal(game.victoryPoints('A'), 9);
+    game.devDeck = ['victory_point'];
+    give(game, 'A', { ore: 1, wool: 1, wheat: 1 });
+
+    ok(game, 'A', { type: 'buy_dev_card' });
+    assert.equal(game.winnerId, 'A');
+    assert.equal(game.toView('B').players.A.victoryPoints, 10);
+  });
+
+  test('quem começa o turno com 10 pontos vence', () => {
+    const { game } = emptyMainPhase();
+    const spots = [...game.graph.vertices.keys()].filter((_, i) => i % 8 === 0).slice(0, 5);
+    spots.forEach((v, i) => game.buildings.set(v, { owner: 'B', type: i < 4 ? 'city' : 'settlement' }));
+    holdCards(game, 'B', { victory_point: 1 });
+    assert.equal(game.phase, 'playing'); // B has 10, but it's A's turn
+
+    ok(game, 'A', { type: 'end_turn' });
+    assert.equal(game.winnerId, 'B');
   });
 });

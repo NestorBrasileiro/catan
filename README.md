@@ -57,8 +57,10 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Turno: rolar dados, produção (aldeia 1, cidade 2, ladrão bloqueia, limite de 19 cartas por recurso no banco), construir estrada/aldeia/cidade com custos e limite de peças (15/5/4), passar a vez
 - ✅ Ladrão no 7: quem tem mais de 7 cartas descarta metade (todos ao mesmo tempo), o jogador da vez move o ladrão e rouba 1 carta aleatória de um vizinho (automático se só houver um)
 - ✅ Comércio depois de rolar: banco 4:1, portos 3:1 e 2:1 (estoque do banco visível), e ofertas aos outros jogadores (aceitar/recusar, quem propôs escolhe com quem fechar; sem doações nem troca do mesmo recurso)
-- ✅ Vitória com 10 pontos no próprio turno (sala fica `finished` e vai para `game_history`)
-- ⏳ Cartas de desenvolvimento, Maior Estrada / Maior Exército, reconexão
+- ✅ Cartas de desenvolvimento (14 Cavaleiros, 5 Pontos de Vitória, 2 Construção de Estradas, 2 Invenção, 2 Monopólio): 1 por turno, a qualquer momento da vez (até antes de rolar), nunca a comprada no mesmo turno; pontos ficam escondidos dos outros
+- ✅ Maior Exército (3+ Cavaleiros) e Maior Estrada (5+, cortada por construção adversária; empate mantém o dono; se o dono perde a liderança e outros empatam, ninguém fica), 2 pontos cada
+- ✅ Vitória com 10 pontos durante a própria vez, contando pontos escondidos e também no início do turno (sala fica `finished` e vai para `game_history`)
+- ⏳ Reconexão (F5 ainda perde a partida), saída de jogador, histórico de jogadas, timer de turno
 
 ## Eventos WebSocket (Cliente → Servidor)
 
@@ -71,7 +73,7 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 | `join_room` | `{ code }` | `{ ok, room }` |
 | `leave_room` | `{}` | `{ ok }` |
 | `start_game` | `{}` (só o host) | `{ ok }` |
-| `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'discard', resources }` (qualquer jogador que deva cartas) · `{ type: 'move_robber', hexKey }` · `{ type: 'steal', victimId }` · `{ type: 'bank_trade', give, get }` · `{ type: 'propose_trade', give, get }` · `{ type: 'respond_trade', accept }` (os outros jogadores) · `{ type: 'confirm_trade', partnerId }` · `{ type: 'cancel_trade' }` · `{ type: 'end_turn' }` | `{ ok }` |
+| `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'discard', resources }` (qualquer jogador que deva cartas) · `{ type: 'move_robber', hexKey }` · `{ type: 'steal', victimId }` · `{ type: 'bank_trade', give, get }` · `{ type: 'propose_trade', give, get }` · `{ type: 'respond_trade', accept }` (os outros jogadores) · `{ type: 'confirm_trade', partnerId }` · `{ type: 'cancel_trade' }` · `{ type: 'buy_dev_card' }` · `{ type: 'play_knight' }` · `{ type: 'play_road_building' }` · `{ type: 'play_year_of_plenty', resources: [r1, r2] }` · `{ type: 'play_monopoly', resource }` · `{ type: 'end_turn' }` | `{ ok }` |
 
 ## Eventos WebSocket (Servidor → Cliente)
 

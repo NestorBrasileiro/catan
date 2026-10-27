@@ -57,13 +57,34 @@
 }
 
 .score-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
   border: 1px solid transparent;
   font-size: 0.9rem;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.player-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.2rem 0 0 1.4rem;
+  font-size: 0.75rem;
+  color: #9aa6c4;
+}
+
+.award {
+  background: #f5c542;
+  color: #1a1a2e;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0 0.45rem;
 }
 
 .score-list li.current {
@@ -96,7 +117,7 @@
 
 .actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.4rem;
   margin-top: 0.5rem;
 }
@@ -273,4 +294,46 @@ button.link-btn {
 .robbery {
   font-size: 0.85rem;
   margin-bottom: 0.4rem;
+}
+
+.dev-cards {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dev-cards li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dev-emoji {
+  font-size: 1.4rem;
+}
+
+.dev-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+}
+
+.dev-text .muted {
+  font-size: 0.75rem;
+}
+
+button.play-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+button.play-btn.active {
+  outline: 2px solid #ff0;
+}
+
+.dev-choice {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
 }

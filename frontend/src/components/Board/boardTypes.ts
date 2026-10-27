@@ -40,7 +40,11 @@ export interface BoardData {
 // ===== Game state as seen by one player (mirrors backend GameView) =====
 
 export type GamePhase = 'setup' | 'playing' | 'finished';
-export type TurnStep = 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'main';
+export type TurnStep =
+  | 'place_settlement' | 'place_road' | 'roll' | 'discard' | 'move_robber' | 'steal' | 'road_building' | 'main';
+export type DevCardType = 'knight' | 'victory_point' | 'road_building' | 'year_of_plenty' | 'monopoly';
+export type PlayableDevCard = Exclude<DevCardType, 'victory_point'>;
+export type DevCards = Record<DevCardType, number>;
 export type BuildKind = 'road' | 'settlement' | 'city';
 export type Resources = Record<ResourceType, number>;
 
@@ -57,6 +61,11 @@ export type GameAction =
   | { type: 'respond_trade'; accept: boolean }
   | { type: 'confirm_trade'; partnerId: string }
   | { type: 'cancel_trade' }
+  | { type: 'buy_dev_card' }
+  | { type: 'play_knight' }
+  | { type: 'play_road_building' }
+  | { type: 'play_year_of_plenty'; resources: [ResourceType, ResourceType] }
+  | { type: 'play_monopoly'; resource: ResourceType }
   | { type: 'end_turn' };
 
 export interface PlayerView {
@@ -65,6 +74,11 @@ export interface PlayerView {
   resourceCount: number;
   resources: Resources | null; // only our own hand
   piecesLeft: Record<BuildKind, number>;
+  devCardCount: number;
+  devCards: DevCards | null;   // only our own cards
+  newDevCards: DevCards | null; // bought this turn
+  knightsPlayed: number;
+  roadLength: number;
 }
 
 export interface TradeOffer {
@@ -89,6 +103,11 @@ export interface GameView {
   discards: Record<string, number>; // cards each player still has to discard after a 7
   lastRobbery: { thiefId: string; victimId: string; resource: ResourceType | null } | null;
   tradeOffer: TradeOffer | null;
+  devDeckCount: number;
+  devCardPlayed: boolean;
+  freeRoadsLeft: number;
+  largestArmyHolder: string | null;
+  longestRoadHolder: string | null;
   legal: {
     settlements: string[];
     roads: string[];
@@ -96,6 +115,8 @@ export interface GameView {
     robberHexes: string[];
     victims: string[];
     bankRatios: Resources;
+    canBuyDevCard: boolean;
+    devCardsToPlay: PlayableDevCard[];
   } | null;
 }
 
@@ -121,11 +142,23 @@ export function cardsText(cards: Resources): string {
 }
 
 // Display only — the server is the authority on costs
-export const BUILD_COSTS: Record<BuildKind, Partial<Resources>> = {
+export const BUILD_COSTS: Record<BuildKind | 'devCard', Partial<Resources>> = {
   road: { wood: 1, brick: 1 },
   settlement: { wood: 1, brick: 1, wool: 1, wheat: 1 },
   city: { wheat: 2, ore: 3 },
+  devCard: { wool: 1, wheat: 1, ore: 1 },
 };
+
+// Names as in the Brazilian edition
+export const DEV_CARD_INFO: Record<DevCardType, { emoji: string; label: string; hint: string }> = {
+  knight: { emoji: '⚔️', label: 'Cavaleiro', hint: 'Mova o ladrão e roube 1 carta.' },
+  victory_point: { emoji: '⭐', label: 'Ponto de Vitória', hint: 'Vale 1 ponto. Só você vê até o fim do jogo.' },
+  road_building: { emoji: '🛣️', label: 'Construção de Estradas', hint: 'Construa 2 estradas grátis.' },
+  year_of_plenty: { emoji: '🎁', label: 'Invenção', hint: 'Pegue 2 recursos quaisquer do banco.' },
+  monopoly: { emoji: '💰', label: 'Monopólio', hint: 'Todos te entregam as cartas de um recurso.' },
+};
+
+export const DEV_CARD_ORDER: DevCardType[] = ['knight', 'road_building', 'year_of_plenty', 'monopoly', 'victory_point'];
 
 // Terrain colors
 export const TERRAIN_COLORS: Record<TerrainType, string> = {

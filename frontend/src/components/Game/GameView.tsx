@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../../contexts/useGame';
 import Board from '../Board/Board';
 import { BUILD_COSTS, RESOURCE_INFO, RESOURCE_ORDER, type BuildKind, type GameAction } from '../Board/boardTypes';
+import DevCardsPanel from './DevCardsPanel';
 import DiscardPanel from './DiscardPanel';
 import IncomingOffer from './IncomingOffer';
 import TradePanel from './TradePanel';
@@ -11,7 +12,7 @@ const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
 const BUILD_LABELS: Record<BuildKind, string> = { road: 'Estrada', settlement: 'Aldeia', city: 'Cidade' };
 const DICE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
-function costText(kind: BuildKind): string {
+function costText(kind: BuildKind | 'devCard'): string {
   return RESOURCE_ORDER
     .filter(r => BUILD_COSTS[kind][r])
     .map(r => RESOURCE_INFO[r].emoji.repeat(BUILD_COSTS[kind][r]!))
@@ -32,13 +33,16 @@ export default function GameView() {
   const me = game.players[user.id];
   const isMyTurn = game.currentPlayerId === user.id && game.phase !== 'finished';
   const myDiscard = game.discards[user.id] ?? 0;
-  const legal = game.legal ?? { settlements: [], roads: [], cities: [], robberHexes: [], victims: [], bankRatios: null };
+  const legal = game.legal ?? {
+    settlements: [], roads: [], cities: [], robberHexes: [], victims: [], bankRatios: null,
+    canBuyDevCard: false, devCardsToPlay: [],
+  };
   const spots: Record<BuildKind, string[]> = { road: legal.roads, settlement: legal.settlements, city: legal.cities };
 
   // During setup the step decides what to place; afterwards the player picks what to build
   let mode: BuildKind | null = null;
   if (isMyTurn && game.step === 'place_settlement') mode = 'settlement';
-  else if (isMyTurn && game.step === 'place_road') mode = 'road';
+  else if (isMyTurn && (game.step === 'place_road' || game.step === 'road_building')) mode = 'road';
   else if (isMyTurn && game.step === 'main') mode = buildMode;
 
   // Resolves to whether the server accepted the action; refusals already show in the error banner
@@ -70,6 +74,10 @@ export default function GameView() {
         return isMyTurn ? 'Clique no hexágono para onde o ladrão vai' : `${current} está movendo o ladrão`;
       case 'steal':
         return isMyTurn ? 'Escolha de quem roubar uma carta' : `${current} está escolhendo de quem roubar`;
+      case 'road_building':
+        return isMyTurn
+          ? `Construção de Estradas: coloque ${game.freeRoadsLeft} estrada(s) grátis`
+          : `${current} está construindo estradas grátis`;
       case 'roll':
         return isMyTurn ? 'Sua vez: role os dados' : `Vez de ${current}: aguardando os dados`;
       default:
@@ -138,10 +146,19 @@ export default function GameView() {
               const p = game.players[id];
               return (
                 <li key={id} className={id === game.currentPlayerId && game.phase !== 'finished' ? 'current' : ''}>
-                  <span className="color-dot" style={{ backgroundColor: p.color }} />
-                  <span className="player-name">{nameOf(id)}{id === user.id && ' (você)'}</span>
-                  <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
-                  <span title="Cartas na mão">🃏 {p.resourceCount}</span>
+                  <div className="player-row">
+                    <span className="color-dot" style={{ backgroundColor: p.color }} />
+                    <span className="player-name">{nameOf(id)}{id === user.id && ' (você)'}</span>
+                    <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
+                    <span title="Cartas de recurso na mão">🃏 {p.resourceCount}</span>
+                    <span title="Cartas de desenvolvimento">📜 {p.devCardCount}</span>
+                  </div>
+                  <div className="player-extra">
+                    <span title="Cavaleiros jogados">⚔️ {p.knightsPlayed}</span>
+                    <span title="Maior estrada contínua">🛣️ {p.roadLength}</span>
+                    {game.largestArmyHolder === id && <span className="award">Maior Exército +2</span>}
+                    {game.longestRoadHolder === id && <span className="award">Maior Estrada +2</span>}
+                  </div>
                 </li>
               );
             })}
@@ -175,15 +192,16 @@ export default function GameView() {
                     <span className="cost">{costText(kind)}</span>
                   </button>
                 ))}
+                <button className="build-btn" disabled={!legal.canBuyDevCard}
+                  title={legal.canBuyDevCard ? undefined : 'Sem recursos ou baralho vazio'}
+                  onClick={() => act({ type: 'buy_dev_card' })}>
+                  <span>Carta</span>
+                  <span className="cost">{costText('devCard')}</span>
+                </button>
                 <button className="wide btn-secondary" onClick={() => act({ type: 'end_turn' })}>Passar a vez ➜</button>
               </div>
             )}
           </section>
-        )}
-
-        {isMyTurn && game.step === 'main' && legal.bankRatios && me.resources && (
-          <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
-            opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
 
         {me?.resources && (
@@ -199,8 +217,19 @@ export default function GameView() {
             </div>
             <p className="muted pieces">
               Peças: {me.piecesLeft.road} estradas · {me.piecesLeft.settlement} aldeias · {me.piecesLeft.city} cidades
+              {game.phase !== 'setup' && <> · {game.devDeckCount} cartas no baralho</>}
             </p>
           </section>
+        )}
+
+        {me.devCards && me.newDevCards && me.devCardCount > 0 && (
+          <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
+            alreadyPlayed={isMyTurn && game.devCardPlayed} bank={game.bank} act={act} />
+        )}
+
+        {isMyTurn && game.step === 'main' && legal.bankRatios && me.resources && (
+          <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
+            opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
       </aside>
     </div>
