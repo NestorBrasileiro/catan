@@ -42,6 +42,22 @@ pnpm dev             # http://localhost:5173
 
 Para simular vários jogadores no mesmo navegador, abra outra aba ou janela e use **Trocar de jogador** no lobby (uma aba nova entra automaticamente como o último jogador daquele navegador).
 
+### Jogar com alguém pela internet (ngrok)
+O servidor também entrega o frontend já compilado, então o jogo inteiro fica numa porta só (3001) e basta um túnel:
+
+```bash
+cd frontend && pnpm build        # gera frontend/dist (refaça depois de mudar o frontend)
+cd ../backend && npm run dev     # jogo completo em http://localhost:3001
+ngrok http 3001                  # em outro terminal; compartilhe o endereço https que aparecer
+```
+
+- Primeira vez com ngrok: `brew install ngrok`, crie uma conta grátis em ngrok.com e rode `ngrok config add-authtoken <seu token>`.
+- No plano grátis, quem abre o link vê um aviso do ngrok antes; é só clicar em "Visit Site".
+- Sem conta: `brew install cloudflared` e `cloudflared tunnel --url http://localhost:3001` também funciona.
+- Na mesma rede (Wi-Fi), nem precisa de túnel: `http://<seu IP local>:3001`.
+- As partidas ficam na memória do servidor: se ele reiniciar (o `npm run dev` reinicia sozinho quando um arquivo do backend muda), a partida em andamento acaba. Durante o jogo, não edite o backend.
+- Qualquer pessoa com o link entra no site enquanto o túnel estiver aberto; feche o túnel quando terminar.
+
 ### Testes (regras do jogo)
 ```bash
 cd backend

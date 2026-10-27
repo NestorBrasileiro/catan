@@ -1,5 +1,7 @@
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
+import path from 'path';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import { GameServer } from './events/socket';
@@ -30,6 +32,14 @@ io.on('connection', (socket) => {
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Once the frontend is built (pnpm build), the server hands it out too, so the whole game
+// lives on one address — handy for sharing it through a tunnel like ngrok
+const FRONTEND_DIST = path.join(__dirname, '..', '..', 'frontend', 'dist');
+if (fs.existsSync(FRONTEND_DIST)) {
+  app.use(express.static(FRONTEND_DIST));
+  console.log(`🌐 Servindo o frontend de ${FRONTEND_DIST}`);
+}
 
 server.listen(PORT, () => {
   console.log(`🏝️  Catan Backend rodando na porta ${PORT}`);
