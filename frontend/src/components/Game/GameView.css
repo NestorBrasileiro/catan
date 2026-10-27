@@ -9,14 +9,30 @@
   .game-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
+.status-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
 .status-bar {
+  flex: 1;
   background: #16213e;
   border: 1px solid #2a3a5e;
   border-radius: 10px;
   padding: 0.7rem 1rem;
-  margin-bottom: 0.75rem;
   font-weight: 600;
   text-align: center;
+}
+
+.sound-toggle {
+  flex: none;
+  padding: 0 0.8rem;
+  font-size: 1.2rem;
+}
+
+.board-area {
+  position: relative;
 }
 
 .status-bar.highlight {
@@ -97,22 +113,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dice {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.5rem;
-}
-
-.dice span {
-  font-size: 2.4rem;
-  line-height: 1;
-}
-
-.dice strong {
-  font-size: 1.4rem;
 }
 
 .actions {
@@ -357,4 +357,34 @@ button.play-btn.active {
 
 .leave-panel button.wide {
   margin-top: 0;
+}
+
+/* Cards flying from a hex to whoever received them, and "+1" over our hand (see useGameFeedback) */
+.flying-card {
+  position: fixed;
+  z-index: 1000;
+  min-width: 34px;
+  height: 46px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  background: #f5ecd7;
+  border: 2px solid #c9a96a;
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.hand-pop {
+  position: fixed;
+  z-index: 1001;
+  font-weight: 800;
+  color: #7CFC9A;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
 }

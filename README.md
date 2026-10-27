@@ -78,6 +78,7 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Vitória com 10 pontos durante a própria vez, contando pontos escondidos e também no início do turno (sala fica `finished` e vai para `game_history`)
 - ✅ Reconexão: recarregar a página ou perder a conexão devolve o jogador ao mesmo lugar (sessão por token; só o hash fica no banco). Na sala de espera, quem cai tem 20 s para voltar; se o host sai, o próximo vira host
 - ✅ Presença e saída: o placar mostra quem está offline; "Sair da partida" pula a vez do jogador, devolve as cartas dele ao banco e ele para de produzir; o último que sobra vence
+- ✅ Animações e som: os dados rolam no canto do tabuleiro e o resultado só aparece quando param; as cartas produzidas voam do hexágono até a mão de quem ganhou. Sons gerados no navegador (sem arquivos de áudio) para dados, cartas, construção, sua vez, ladrão, oferta de troca e fim de jogo, com botão 🔊/🔇 que fica salvo. Quem tem "reduzir movimento" ligado no sistema não vê as animações
 - ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)
 
 ## Eventos WebSocket (Cliente → Servidor)
@@ -100,4 +101,4 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 |---|---|
 | `room_state_updated` | `{ id, code, hostId, maxPlayers, turnTimer, status, players[] }` (cada jogador com `online`) |
 | `board_generated` | `{ hexes, ports, vertices, edges }` (uma vez, ao iniciar) |
-| `game_state_update` | visão do jogo para aquele jogador: mão própria, só a contagem de cartas dos outros, e as jogadas válidas (`legal`) se for a vez dele |
+| `game_state_update` | visão do jogo para aquele jogador: mão própria, só a contagem de cartas dos outros, e as jogadas válidas (`legal`) se for a vez dele. `rollCount` e `lastProduction` (`{ id, gains: [{ hexKey, userId, resource, amount }] }`) dizem ao cliente quando animar os dados e as cartas |

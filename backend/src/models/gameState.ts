@@ -112,6 +112,19 @@ export interface TradeOfferView {
   responses: Record<string, 'accepted' | 'declined'>;
 }
 
+// Cards the bank handed out from one hex (a roll, or the second settlement in setup)
+export interface ResourceGain {
+  hexKey: string;
+  userId: string;
+  resource: ResourceType;
+  amount: number;
+}
+
+export interface Production {
+  id: number; // grows with every handout, so clients can tell a new one from the last
+  gains: ResourceGain[];
+}
+
 interface Robbery {
   thiefId: string;
   victimId: string;
@@ -130,6 +143,8 @@ export interface GameView {
   robberHex: string;                   // "q,r"
   bank: Resources;                     // public, like the card piles on the table
   dice: [number, number] | null;
+  rollCount: number;                   // grows with every roll, even when the dice repeat
+  lastProduction: Production | null;   // public, like cards handed out on the table
   winnerId: string | null;
   discards: Record<string, number>;    // userId → cards still owed after a 7
   lastRobbery: Robbery | null;
@@ -193,6 +208,8 @@ export class GameState {
   readonly bank: Resources = resources(BANK_SIZE);
   robberHex: string;
   dice: [number, number] | null = null;
+  rollCount = 0;
+  lastProduction: Production | null = null;
   winnerId: string | null = null;
   readonly pendingDiscards = new Map<string, number>();
   lastRobbery: Robbery | null = null;
@@ -416,6 +433,7 @@ export class GameState {
     if (err) return err;
 
     this.dice = this.rollDice();
+    this.rollCount++;
     const sum = this.dice[0] + this.dice[1];
     if (sum === 7) {
       this.startRobber();
@@ -497,7 +515,7 @@ export class GameState {
   }
 
   private produce(sum: number) {
-    const owed = new Map<ResourceType, Map<string, number>>();
+    const claims: ResourceGain[] = [];
     for (const hex of this.board.hexes) {
       const hexKey = `${hex.q},${hex.r}`;
       const resource = TERRAIN_TO_RESOURCE[hex.terrain];
@@ -506,21 +524,29 @@ export class GameState {
       for (const vertexKey of this.graph.hexVertices.get(hexKey)!) {
         const building = this.buildings.get(vertexKey);
         if (!building || this.leftPlayers.has(building.owner)) continue;
-        const perPlayer = owed.get(resource) ?? new Map<string, number>();
-        perPlayer.set(building.owner, (perPlayer.get(building.owner) ?? 0) + (building.type === 'city' ? 2 : 1));
-        owed.set(resource, perPlayer);
+        claims.push({ hexKey, userId: building.owner, resource, amount: building.type === 'city' ? 2 : 1 });
       }
     }
 
     // Official rule: if the bank can't pay everyone a resource, nobody gets it,
     // unless only one player is owed it, who then takes whatever is left.
-    for (const [resource, perPlayer] of owed) {
-      const total = [...perPlayer.values()].reduce((a, b) => a + b, 0);
-      if (total > this.bank[resource] && perPlayer.size > 1) continue;
-      for (const [owner, amount] of perPlayer) {
-        this.take(owner, resource, Math.min(amount, this.bank[resource]));
+    const gains: ResourceGain[] = [];
+    for (const resource of RESOURCES) {
+      const owed = claims.filter(c => c.resource === resource);
+      const total = owed.reduce((sum, c) => sum + c.amount, 0);
+      if (total > this.bank[resource] && new Set(owed.map(c => c.userId)).size > 1) continue;
+      for (const claim of owed) {
+        const amount = Math.min(claim.amount, this.bank[resource]);
+        if (amount === 0) continue;
+        this.take(claim.userId, resource, amount);
+        gains.push({ ...claim, amount });
       }
     }
+    this.recordProduction(gains);
+  }
+
+  private recordProduction(gains: ResourceGain[]) {
+    if (gains.length > 0) this.lastProduction = { id: (this.lastProduction?.id ?? 0) + 1, gains };
   }
 
   // ===== TRADE =====
@@ -797,11 +823,15 @@ export class GameState {
   }
 
   private collectInitialResources(userId: string, vertexKey: string) {
+    const gains: ResourceGain[] = [];
     for (const hexKey of this.graph.vertices.get(vertexKey)!.adjacentHexKeys) {
       const hex = this.board.hexes.find(h => `${h.q},${h.r}` === hexKey)!;
       const resource = TERRAIN_TO_RESOURCE[hex.terrain];
-      if (resource) this.take(userId, resource, 1);
+      if (!resource) continue;
+      this.take(userId, resource, 1);
+      gains.push({ hexKey, userId, resource, amount: 1 });
     }
+    this.recordProduction(gains);
   }
 
   private checkVictory(userId: string) {
@@ -913,6 +943,11 @@ export class GameState {
       robberHex: this.robberHex,
       bank: { ...this.bank },
       dice: this.dice,
+      rollCount: this.rollCount,
+      lastProduction: this.lastProduction && {
+        id: this.lastProduction.id,
+        gains: this.lastProduction.gains.map(g => ({ ...g })),
+      },
       winnerId: this.winnerId,
       discards: Object.fromEntries(this.pendingDiscards),
       lastRobbery: robbery && { ...robbery, resource: seesStolenCard ? robbery.resource : null },

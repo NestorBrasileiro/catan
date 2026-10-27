@@ -102,6 +102,12 @@ describe('fase de fundação', () => {
       const hand = RESOURCES.reduce((s, r) => s + p.resources[r], 0);
       assert.equal(hand, productiveNeighbors);
       assert.equal(game.victoryPoints(id), 2);
+      if (id === 'A') {
+        // A places last in setup, so the last handout on the table is A's
+        const gains = game.toView('B').lastProduction!.gains;
+        assert.ok(gains.every(g => g.userId === 'A' && g.amount === 1 && p.resources[g.resource] > 0));
+        assert.equal(gains.length, hand);
+      }
       assert.equal(game.toView(id).players[id].piecesLeft.road, 13);
       dealt += hand;
     }
@@ -162,10 +168,31 @@ describe('produção', () => {
 
   test('aldeia rende 1, cidade rende 2, e o banco paga', () => {
     const { game } = withBuildingsOnHill();
+    const before = game.toView('C');
     ok(game, 'B', { type: 'roll_dice' });
     assert.equal(game.players.get('A')!.resources.brick, 3);
     assert.equal(game.players.get('B')!.resources.brick, 1);
     assert.equal(game.bank.brick, BANK_SIZE - 4);
+
+    // Everyone sees where each card came from, to animate it from the hex to the player
+    const after = game.toView('C');
+    assert.equal(after.rollCount, before.rollCount + 1);
+    assert.equal(after.lastProduction!.id, before.lastProduction!.id + 1);
+    assert.deepEqual(after.lastProduction!.gains, [
+      { hexKey: HILL, userId: 'A', resource: 'brick', amount: 1 },
+      { hexKey: HILL, userId: 'B', resource: 'brick', amount: 1 },
+      { hexKey: HILL, userId: 'A', resource: 'brick', amount: 2 },
+    ]);
+  });
+
+  test('rolagem sem produção conta a rolagem mas não cria entrega nova', () => {
+    const { game, setDice } = withBuildingsOnHill();
+    const before = game.toView('C');
+    setDice([2, 3]);
+    ok(game, 'B', { type: 'roll_dice' });
+    const after = game.toView('C');
+    assert.equal(after.rollCount, before.rollCount + 1);
+    assert.deepEqual(after.lastProduction, before.lastProduction);
   });
 
   test('o hexágono com o ladrão não produz', () => {
@@ -191,6 +218,8 @@ describe('produção', () => {
     ok(game, 'B', { type: 'roll_dice' });
     assert.equal(game.players.get('A')!.resources.brick, 2);
     assert.equal(game.bank.brick, 0);
+    const gains = game.lastProduction!.gains;
+    assert.equal(gains.reduce((sum, g) => sum + g.amount, 0), 2);
   });
 
   test('7 não produz nada e chama o ladrão', () => {

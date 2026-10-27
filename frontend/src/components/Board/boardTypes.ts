@@ -81,6 +81,14 @@ export interface PlayerView {
   roadLength: number;
 }
 
+// Cards the bank handed out from one hex to one player
+export interface ResourceGain {
+  hexKey: string;
+  userId: string;
+  resource: ResourceType;
+  amount: number;
+}
+
 export interface TradeOffer {
   give: Resources; // what the current player gives
   get: Resources;  // what they ask for
@@ -99,6 +107,8 @@ export interface GameView {
   robberHex: string;
   bank: Resources;
   dice: [number, number] | null;
+  rollCount: number; // grows with every roll, even when the dice repeat
+  lastProduction: { id: number; gains: ResourceGain[] } | null; // last cards the bank handed out from the hexes
   winnerId: string | null;
   discards: Record<string, number>; // cards each player still has to discard after a 7
   lastRobbery: { thiefId: string; victimId: string; resource: ResourceType | null } | null;

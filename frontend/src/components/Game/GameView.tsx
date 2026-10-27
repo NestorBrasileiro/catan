@@ -2,15 +2,18 @@ import { useState } from 'react';
 import { useGame } from '../../contexts/useGame';
 import Board from '../Board/Board';
 import { BUILD_COSTS, RESOURCE_INFO, RESOURCE_ORDER, type BuildKind, type GameAction } from '../Board/boardTypes';
+import Dice from './Dice';
 import DevCardsPanel from './DevCardsPanel';
 import DiscardPanel from './DiscardPanel';
 import IncomingOffer from './IncomingOffer';
+import SoundToggle from './SoundToggle';
 import TradePanel from './TradePanel';
+import { useGameFeedback } from './useGameFeedback';
+import { useRollReveal } from './useRollReveal';
 import './GameView.css';
 
 const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
 const BUILD_LABELS: Record<BuildKind, string> = { road: 'Estrada', settlement: 'Aldeia', city: 'Cidade' };
-const DICE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
 function costText(kind: BuildKind | 'devCard'): string {
   return RESOURCE_ORDER
@@ -20,9 +23,11 @@ function costText(kind: BuildKind | 'devCard'): string {
 }
 
 export default function GameView() {
-  const { room, user, board, gameState: game, sendAction, leaveRoom } = useGame();
+  const { room, user, board, gameState, sendAction, leaveRoom } = useGame();
   const [buildMode, setBuildMode] = useState<BuildKind | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const { view: game, rolling } = useRollReveal(gameState);
+  useGameFeedback(game, rolling, user?.id);
 
   if (!room || !user || !board || !game) {
     return <div className="card"><h2>🎲 Carregando tabuleiro...</h2></div>;
@@ -94,25 +99,31 @@ export default function GameView() {
     return `${who(robbery.thiefId)} roubou ${card} de ${who(robbery.victimId, false)}`;
   })();
 
-  const diceSum = game.dice ? game.dice[0] + game.dice[1] : null;
   const needsMe = isMyTurn || myDiscard > 0 || game.phase === 'finished';
+  const showTurnPanel = robberyText || (isMyTurn && (game.step === 'roll' || game.step === 'main'));
 
   return (
     <div className="game-layout">
       <div className="game-main">
-        <div className={`status-bar ${needsMe ? 'highlight' : ''}`} role="status">
-          {status}
+        <div className="status-row">
+          <div className={`status-bar ${needsMe ? 'highlight' : ''}`} role="status">
+            {rolling ? '🎲 Rolando os dados…' : status}
+          </div>
+          <SoundToggle />
         </div>
-        <Board
-          board={board}
-          game={game}
-          highlightVertices={mode === 'settlement' ? spots.settlement : mode === 'city' ? spots.city : []}
-          highlightEdges={mode === 'road' ? spots.road : []}
-          highlightHexes={legal.robberHexes}
-          onVertexClick={vertexKey => act(mode === 'city' ? { type: 'build_city', vertexKey } : { type: 'build_settlement', vertexKey })}
-          onEdgeClick={edgeKey => act({ type: 'build_road', edgeKey })}
-          onHexClick={hexKey => act({ type: 'move_robber', hexKey })}
-        />
+        <div className="board-area">
+          <Board
+            board={board}
+            game={game}
+            highlightVertices={mode === 'settlement' ? spots.settlement : mode === 'city' ? spots.city : []}
+            highlightEdges={mode === 'road' ? spots.road : []}
+            highlightHexes={legal.robberHexes}
+            onVertexClick={vertexKey => act(mode === 'city' ? { type: 'build_city', vertexKey } : { type: 'build_settlement', vertexKey })}
+            onEdgeClick={edgeKey => act({ type: 'build_road', edgeKey })}
+            onHexClick={hexKey => act({ type: 'move_robber', hexKey })}
+          />
+          {game.phase !== 'setup' && <Dice dice={game.dice} rolling={rolling} />}
+        </div>
       </div>
 
       <aside className="game-side">
@@ -157,7 +168,7 @@ export default function GameView() {
                       {offline && <span className="presence"> · offline</span>}
                     </span>
                     <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
-                    <span title="Cartas de recurso na mão">🃏 {p.resourceCount}</span>
+                    <span title="Cartas de recurso na mão" data-cards-of={id}>🃏 {p.resourceCount}</span>
                     <span title="Cartas de desenvolvimento">📜 {p.devCardCount}</span>
                   </div>
                   <div className="player-extra">
@@ -172,19 +183,15 @@ export default function GameView() {
           </ul>
         </section>
 
-        {game.phase !== 'setup' && (
+        {game.phase !== 'setup' && showTurnPanel && (
           <section className="panel">
-            <h3>Dados</h3>
-            {game.dice ? (
-              <div className="dice" aria-label={`Dados: ${game.dice[0]} e ${game.dice[1]}`}>
-                <span aria-hidden>{DICE_FACES[game.dice[0] - 1]}{DICE_FACES[game.dice[1] - 1]}</span>
-                <strong>{diceSum}</strong>
-              </div>
-            ) : <p className="muted">Ainda não rolados.</p>}
+            <h3>Turno</h3>
             {robberyText && <p className="robbery">🥷 {robberyText}</p>}
 
             {isMyTurn && game.step === 'roll' && (
-              <button className="wide" onClick={() => act({ type: 'roll_dice' })}>🎲 Rolar dados</button>
+              <button className="wide" disabled={rolling} onClick={() => act({ type: 'roll_dice' })}>
+                {rolling ? '🎲 Rolando…' : '🎲 Rolar dados'}
+              </button>
             )}
             {isMyTurn && game.step === 'main' && (
               <div className="actions">
@@ -216,7 +223,7 @@ export default function GameView() {
             <h3>Sua mão</h3>
             <div className="hand">
               {RESOURCE_ORDER.map(r => (
-                <div key={r} className="hand-card" title={RESOURCE_INFO[r].label}>
+                <div key={r} className="hand-card" title={RESOURCE_INFO[r].label} data-hand={r}>
                   <span className="hand-emoji">{RESOURCE_INFO[r].emoji}</span>
                   <strong>{me.resources![r]}</strong>
                 </div>

@@ -1,0 +1,93 @@
+/* Dice sit on the ocean in the board's top-left corner, where no hex reaches */
+.dice-tray {
+  --die: clamp(28px, 5vw, 42px);
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--die) * 0.25);
+  pointer-events: none;
+}
+
+.die {
+  width: var(--die);
+  height: var(--die);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: calc(var(--die) * 0.12);
+  border-radius: calc(var(--die) * 0.2);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.45), inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+}
+
+.die-red { background: #c8102e; --pip: #fff; }
+.die-yellow { background: #f2c230; --pip: #2b2b2b; }
+
+.die > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.die > .pip::before {
+  content: '';
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  background: var(--pip);
+}
+
+.rolling .die {
+  animation: die-tumble 0.32s ease-in-out infinite;
+}
+.rolling .die-yellow {
+  animation-direction: reverse;
+  animation-delay: -0.12s;
+}
+
+.landed .die {
+  animation: die-land 0.3s ease-out;
+}
+
+.dice-sum {
+  min-width: calc(var(--die) * 0.85);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(10, 20, 40, 0.75);
+  color: #fff;
+  font-weight: 800;
+  font-size: calc(var(--die) * 0.5);
+  text-align: center;
+  animation: die-land 0.3s ease-out;
+}
+.dice-sum.seven {
+  background: #e94560;
+}
+
+@keyframes die-tumble {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(3px, -6px) rotate(80deg); }
+  50% { transform: translate(-2px, 0) rotate(170deg); }
+  75% { transform: translate(2px, -4px) rotate(260deg); }
+  100% { transform: translate(0, 0) rotate(360deg); }
+}
+
+@keyframes die-land {
+  0% { transform: scale(1.25); }
+  60% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rolling .die, .landed .die, .dice-sum { animation: none; }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

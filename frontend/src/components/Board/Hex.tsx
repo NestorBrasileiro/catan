@@ -17,7 +17,7 @@ export default function Hex({ hex, cx, cy, size }: HexProps) {
   const isHot = hex.number === 6 || hex.number === 8;
 
   return (
-    <g>
+    <g data-hex={`${hex.q},${hex.r}`}>
       {/* Hex shape */}
       <polygon
         points={points}
