@@ -156,31 +156,106 @@ button.wide {
   border: 2px solid #e94560;
 }
 
-.discard-list {
-  list-style: none;
+.picker {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3rem;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.picker-col {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin: 0.6rem 0 0.2rem;
-}
-
-.discard-list li {
-  display: grid;
-  grid-template-columns: 1fr 2rem 1.6rem 2rem;
   align-items: center;
-  gap: 0.3rem;
-  text-align: center;
+  gap: 0.2rem;
+  background: #0f3460;
+  border-radius: 8px;
+  padding: 0.3rem 0;
 }
 
-.discard-label {
-  text-align: left;
-  font-size: 0.9rem;
+.picker-emoji {
+  font-size: 1.2rem;
+}
+
+.picker-cap {
+  font-size: 0.7rem;
+  color: #9aa6c4;
+}
+
+.picker-title {
+  text-align: center;
+  font-size: 0.75rem;
 }
 
 button.stepper {
-  padding: 0.2rem 0;
+  width: 80%;
+  padding: 0.1rem 0;
   font-size: 1rem;
+  background: #1b4b85;
+}
+
+.panel h4 {
+  font-size: 0.8rem;
+  margin: 0.8rem 0 0.3rem;
+}
+
+.panel h3 + h4 {
+  margin-top: 0;
+}
+
+.bank-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.bank-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0;
+  font-size: 1.2rem;
   background: #0f3460;
+}
+
+.bank-btn small {
+  font-size: 0.7rem;
+}
+
+button.link-btn {
+  background: none;
+  padding: 0.3rem 0;
+  font-size: 0.8rem;
+  color: #9aa6c4;
+  text-decoration: underline;
+}
+
+.offer-responses {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0;
+}
+
+.offer-responses li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+
+.offer-responses button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.offer-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
 }
 
 .victims {

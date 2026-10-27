@@ -3,6 +3,8 @@ import { useGame } from '../../contexts/useGame';
 import Board from '../Board/Board';
 import { BUILD_COSTS, RESOURCE_INFO, RESOURCE_ORDER, type BuildKind, type GameAction } from '../Board/boardTypes';
 import DiscardPanel from './DiscardPanel';
+import IncomingOffer from './IncomingOffer';
+import TradePanel from './TradePanel';
 import './GameView.css';
 
 const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
@@ -30,7 +32,7 @@ export default function GameView() {
   const me = game.players[user.id];
   const isMyTurn = game.currentPlayerId === user.id && game.phase !== 'finished';
   const myDiscard = game.discards[user.id] ?? 0;
-  const legal = game.legal ?? { settlements: [], roads: [], cities: [], robberHexes: [], victims: [] };
+  const legal = game.legal ?? { settlements: [], roads: [], cities: [], robberHexes: [], victims: [], bankRatios: null };
   const spots: Record<BuildKind, string[]> = { road: legal.roads, settlement: legal.settlements, city: legal.cities };
 
   // During setup the step decides what to place; afterwards the player picks what to build
@@ -39,11 +41,15 @@ export default function GameView() {
   else if (isMyTurn && game.step === 'place_road') mode = 'road';
   else if (isMyTurn && game.step === 'main') mode = buildMode;
 
-  const act = async (action: GameAction) => {
+  // Resolves to whether the server accepted the action; refusals already show in the error banner
+  const act = async (action: GameAction): Promise<boolean> => {
     try {
       await sendAction(action);
       setBuildMode(null);
-    } catch { /* the error banner already shows why */ }
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const status = (() => {
@@ -104,6 +110,11 @@ export default function GameView() {
         {myDiscard > 0 && me.resources && (
           <DiscardPanel key={myDiscard} hand={me.resources} owed={myDiscard}
             onConfirm={resources => act({ type: 'discard', resources })} />
+        )}
+
+        {game.tradeOffer && !isMyTurn && me.resources && (
+          <IncomingOffer offer={game.tradeOffer} fromName={nameOf(game.currentPlayerId)}
+            myId={user.id} hand={me.resources} act={act} />
         )}
 
         {legal.victims.length > 0 && (
@@ -168,6 +179,11 @@ export default function GameView() {
               </div>
             )}
           </section>
+        )}
+
+        {isMyTurn && game.step === 'main' && legal.bankRatios && me.resources && (
+          <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
+            opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
 
         {me?.resources && (

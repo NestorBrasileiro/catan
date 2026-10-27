@@ -1,5 +1,5 @@
 import { randomInt } from 'crypto';
-import { BoardData, RESOURCES, ResourceType, TERRAIN_TO_RESOURCE } from '../utils/boardGenerator';
+import { BoardData, PortType, RESOURCES, ResourceType, TERRAIN_TO_RESOURCE } from '../utils/boardGenerator';
 import { BoardGraph, buildBoardGraph } from '../utils/boardGraph';
 
 export type GamePhase = 'setup' | 'playing' | 'finished';
@@ -16,6 +16,11 @@ export type GameAction =
   | { type: 'discard'; resources: Partial<Resources> }
   | { type: 'move_robber'; hexKey: string }
   | { type: 'steal'; victimId: string }
+  | { type: 'bank_trade'; give: ResourceType; get: ResourceType }
+  | { type: 'propose_trade'; give: Partial<Resources>; get: Partial<Resources> }
+  | { type: 'respond_trade'; accept: boolean }
+  | { type: 'confirm_trade'; partnerId: string }
+  | { type: 'cancel_trade' }
   | { type: 'end_turn' };
 
 export const COSTS = {
@@ -63,6 +68,20 @@ export interface LegalMoves {
   cities: string[];
   robberHexes: string[];
   victims: string[];
+  bankRatios: Resources; // cards of each kind needed for 1 from the bank (4, or 3/2 with ports)
+}
+
+// The current player's open offer to the table
+interface TradeOffer {
+  give: Resources;
+  get: Resources;
+  responses: Map<string, 'accepted' | 'declined'>;
+}
+
+export interface TradeOfferView {
+  give: Resources;
+  get: Resources;
+  responses: Record<string, 'accepted' | 'declined'>;
 }
 
 interface Robbery {
@@ -81,10 +100,12 @@ export interface GameView {
   buildings: Record<string, Building>; // vertexKey → building
   roads: Record<string, string>;       // edgeKey → userId
   robberHex: string;                   // "q,r"
+  bank: Resources;                     // public, like the card piles on the table
   dice: [number, number] | null;
   winnerId: string | null;
   discards: Record<string, number>;    // userId → cards still owed after a 7
   lastRobbery: Robbery | null;
+  tradeOffer: TradeOfferView | null;   // public, like an offer made out loud at the table
   legal: LegalMoves | null;            // only for the current player
 }
 
@@ -129,6 +150,8 @@ export class GameState {
   winnerId: string | null = null;
   readonly pendingDiscards = new Map<string, number>();
   lastRobbery: Robbery | null = null;
+  tradeOffer: TradeOffer | null = null;
+  readonly ports = new Map<string, PortType>(); // vertexKey → port it gives access to
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
 
   constructor(
@@ -144,6 +167,11 @@ export class GameState {
     }
     const desert = board.hexes.find(h => h.terrain === 'desert')!;
     this.robberHex = `${desert.q},${desert.r}`;
+    for (const port of board.ports) {
+      const corners = this.graph.hexVertices.get(`${port.hexQ},${port.hexR}`)!;
+      this.ports.set(corners[port.edgeDir], port.type);
+      this.ports.set(corners[(port.edgeDir + 1) % 6], port.type);
+    }
   }
 
   get currentPlayerId(): string {
@@ -153,8 +181,9 @@ export class GameState {
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
-    // Discarding after a 7 is the one action players take outside their own turn
+    // Discarding after a 7 and answering a trade offer are the actions taken outside one's own turn
     if (action?.type === 'discard') return this.discard(userId, action.resources);
+    if (action?.type === 'respond_trade') return this.respondTrade(userId, action.accept);
     if (userId !== this.currentPlayerId) return 'Não é a sua vez.';
 
     switch (action?.type) {
@@ -164,6 +193,10 @@ export class GameState {
       case 'roll_dice': return this.roll();
       case 'move_robber': return this.moveRobber(userId, action.hexKey);
       case 'steal': return this.steal(userId, action.victimId);
+      case 'bank_trade': return this.bankTrade(userId, action.give, action.get);
+      case 'propose_trade': return this.proposeTrade(userId, action.give, action.get);
+      case 'confirm_trade': return this.confirmTrade(userId, action.partnerId);
+      case 'cancel_trade': return this.cancelTrade();
       case 'end_turn': return this.endTurn();
       default: return 'Ação inválida.';
     }
@@ -399,6 +432,88 @@ export class GameState {
     }
   }
 
+  // ===== TRADE =====
+
+  tradeRatios(userId: string): Resources {
+    const ratios = resources(4);
+    for (const [vertexKey, port] of this.ports) {
+      if (this.buildings.get(vertexKey)?.owner !== userId) continue;
+      if (port === '3:1') for (const r of RESOURCES) ratios[r] = Math.min(ratios[r], 3);
+      else ratios[port] = 2;
+    }
+    return ratios;
+  }
+
+  private bankTrade(userId: string, give: ResourceType, get: ResourceType): string | null {
+    const err = this.stepError('main');
+    if (err) return err;
+    if (!RESOURCES.includes(give) || !RESOURCES.includes(get)) return 'Recurso inválido.';
+    if (give === get) return 'Escolha recursos diferentes.';
+
+    const ratio = this.tradeRatios(userId)[give];
+    if (!this.canAfford(userId, { [give]: ratio })) return `Você precisa de ${ratio} cartas para essa troca.`;
+    if (this.bank[get] < 1) return 'O banco não tem mais esse recurso.';
+
+    this.pay(userId, { [give]: ratio });
+    this.take(userId, get, 1);
+    return null;
+  }
+
+  private proposeTrade(userId: string, give: unknown, get: unknown): string | null {
+    const err = this.stepError('main');
+    if (err) return err;
+    const offerGive = parseCards(give);
+    const offerGet = parseCards(get);
+    if (!offerGive || !offerGet) return 'Cartas inválidas.';
+    if (handSize(offerGive) === 0 || handSize(offerGet) === 0) return 'A troca precisa ter cartas dos dois lados.';
+    if (RESOURCES.some(r => offerGive[r] > 0 && offerGet[r] > 0)) return 'Não dá para trocar um recurso por ele mesmo.';
+    if (!this.canAfford(userId, offerGive)) return 'Você não tem essas cartas.';
+
+    this.tradeOffer = { give: offerGive, get: offerGet, responses: new Map() };
+    return null;
+  }
+
+  private respondTrade(userId: string, accept: unknown): string | null {
+    const offer = this.tradeOffer;
+    if (!offer) return 'Não há oferta de troca.';
+    if (userId === this.currentPlayerId) return 'A oferta é sua.';
+    if (!this.players.has(userId)) return 'Jogador inválido.';
+    if (accept === true && !this.canAfford(userId, offer.get)) return 'Você não tem as cartas pedidas.';
+
+    offer.responses.set(userId, accept === true ? 'accepted' : 'declined');
+    return null;
+  }
+
+  private confirmTrade(userId: string, partnerId: string): string | null {
+    const err = this.stepError('main');
+    if (err) return err;
+    const offer = this.tradeOffer;
+    if (!offer) return 'Não há oferta de troca.';
+    if (offer.responses.get(partnerId) !== 'accepted') return 'Esse jogador não aceitou a troca.';
+    if (!this.canAfford(userId, offer.give)) return 'Você não tem mais as cartas oferecidas.';
+    if (!this.canAfford(partnerId, offer.get)) return 'O outro jogador não tem mais as cartas pedidas.';
+
+    this.moveCards(userId, partnerId, offer.give);
+    this.moveCards(partnerId, userId, offer.get);
+    this.tradeOffer = null;
+    return null;
+  }
+
+  private cancelTrade(): string | null {
+    if (!this.tradeOffer) return 'Não há oferta de troca.';
+    this.tradeOffer = null;
+    return null;
+  }
+
+  private moveCards(fromId: string, toId: string, cards: Resources) {
+    const from = this.players.get(fromId)!.resources;
+    const to = this.players.get(toId)!.resources;
+    for (const r of RESOURCES) {
+      from[r] -= cards[r];
+      to[r] += cards[r];
+    }
+  }
+
   private endTurn(): string | null {
     const err = this.stepError('main');
     if (err) return err;
@@ -406,6 +521,7 @@ export class GameState {
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
     this.step = 'roll';
     this.lastRobbery = null;
+    this.tradeOffer = null;
     return null;
   }
 
@@ -491,6 +607,7 @@ export class GameState {
       roads: [...this.graph.edges.keys()].filter(e => !this.roadError(userId, e)),
       robberHexes: this.step === 'move_robber' ? [...this.graph.hexVertices.keys()].filter(h => h !== this.robberHex) : [],
       victims: this.step === 'steal' ? this.robberVictims(userId) : [],
+      bankRatios: this.tradeRatios(userId),
     };
   }
 
@@ -524,10 +641,16 @@ export class GameState {
       buildings: Object.fromEntries([...this.buildings].map(([k, b]) => [k, { ...b }])),
       roads: Object.fromEntries(this.roads),
       robberHex: this.robberHex,
+      bank: { ...this.bank },
       dice: this.dice,
       winnerId: this.winnerId,
       discards: Object.fromEntries(this.pendingDiscards),
       lastRobbery: robbery && { ...robbery, resource: seesStolenCard ? robbery.resource : null },
+      tradeOffer: this.tradeOffer && {
+        give: { ...this.tradeOffer.give },
+        get: { ...this.tradeOffer.get },
+        responses: Object.fromEntries(this.tradeOffer.responses),
+      },
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
     };
   }

@@ -52,6 +52,11 @@ export type GameAction =
   | { type: 'discard'; resources: Partial<Resources> }
   | { type: 'move_robber'; hexKey: string }
   | { type: 'steal'; victimId: string }
+  | { type: 'bank_trade'; give: ResourceType; get: ResourceType }
+  | { type: 'propose_trade'; give: Partial<Resources>; get: Partial<Resources> }
+  | { type: 'respond_trade'; accept: boolean }
+  | { type: 'confirm_trade'; partnerId: string }
+  | { type: 'cancel_trade' }
   | { type: 'end_turn' };
 
 export interface PlayerView {
@@ -60,6 +65,12 @@ export interface PlayerView {
   resourceCount: number;
   resources: Resources | null; // only our own hand
   piecesLeft: Record<BuildKind, number>;
+}
+
+export interface TradeOffer {
+  give: Resources; // what the current player gives
+  get: Resources;  // what they ask for
+  responses: Record<string, 'accepted' | 'declined'>;
 }
 
 export interface GameView {
@@ -72,16 +83,19 @@ export interface GameView {
   buildings: Record<string, { owner: string; type: 'settlement' | 'city' }>;
   roads: Record<string, string>;
   robberHex: string;
+  bank: Resources;
   dice: [number, number] | null;
   winnerId: string | null;
   discards: Record<string, number>; // cards each player still has to discard after a 7
   lastRobbery: { thiefId: string; victimId: string; resource: ResourceType | null } | null;
+  tradeOffer: TradeOffer | null;
   legal: {
     settlements: string[];
     roads: string[];
     cities: string[];
     robberHexes: string[];
     victims: string[];
+    bankRatios: Resources;
   } | null;
 }
 
@@ -94,6 +108,17 @@ export const RESOURCE_INFO: Record<ResourceType, { emoji: string; label: string 
   wheat: { emoji: '🌾', label: 'Trigo' },
   ore: { emoji: '⛰️', label: 'Minério' },
 };
+
+export const NO_RESOURCES: Resources = { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 };
+
+export function cardCount(cards: Resources): number {
+  return RESOURCE_ORDER.reduce((sum, r) => sum + cards[r], 0);
+}
+
+// "2 🌲 + 1 🧱"
+export function cardsText(cards: Resources): string {
+  return RESOURCE_ORDER.filter(r => cards[r] > 0).map(r => `${cards[r]} ${RESOURCE_INFO[r].emoji}`).join(' + ');
+}
 
 // Display only — the server is the authority on costs
 export const BUILD_COSTS: Record<BuildKind, Partial<Resources>> = {

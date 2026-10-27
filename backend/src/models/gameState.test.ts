@@ -10,7 +10,7 @@ const PLAYERS = [
 ];
 
 // Center is the desert, hexes[1] = (0,-1) is a hill with a 6, every other hex is a field with a 12,
-// so rolling a 6 only ever produces brick from that one hex.
+// so rolling a 6 only ever produces brick from that one hex. Two known ports: 3:1 and wool 2:1.
 function fixedBoard(): BoardData {
   const board = generateBoard();
   board.hexes = board.hexes.map((h, i) => {
@@ -18,6 +18,10 @@ function fixedBoard(): BoardData {
     if (i === 1) return { ...h, terrain: 'hills', number: 6 };
     return { ...h, terrain: 'fields', number: 12 };
   });
+  board.ports = [
+    { hexQ: 0, hexR: -2, edgeDir: 4, type: '3:1' },
+    { hexQ: 2, hexR: -2, edgeDir: 0, type: 'wool' },
+  ];
   return board;
 }
 const HILL = '0,-1';
@@ -401,5 +405,122 @@ describe('vitória e informação escondida', () => {
     const viewB = game.toView('B');
     assert.deepEqual(viewB.players.B.resources, { wood: 0, brick: 0, wool: 1, wheat: 0, ore: 2 });
     assert.equal(viewB.legal, null);
+  });
+});
+
+describe('comércio com o banco', () => {
+  test('4:1 sem porto, só depois de rolar', () => {
+    const { game } = newGame();
+    playSetup(game);
+    game.buildings.clear();
+    for (const p of game.players.values()) p.resources = { wood: 0, brick: 0, wool: 0, wheat: 0, ore: 0 };
+    give(game, 'A', { wood: 5 });
+    assert.equal(game.apply('A', { type: 'bank_trade', give: 'wood', get: 'brick' }), 'Role os dados primeiro.');
+    ok(game, 'A', { type: 'roll_dice' });
+
+    assert.equal(game.apply('A', { type: 'bank_trade', give: 'wood', get: 'wood' }), 'Escolha recursos diferentes.');
+    assert.equal(game.apply('A', { type: 'bank_trade', give: 'gold' as never, get: 'wood' }), 'Recurso inválido.');
+    ok(game, 'A', { type: 'bank_trade', give: 'wood', get: 'brick' });
+    assert.deepEqual(game.players.get('A')!.resources, { wood: 1, brick: 1, wool: 0, wheat: 0, ore: 0 });
+    assert.equal(game.apply('A', { type: 'bank_trade', give: 'wood', get: 'ore' }), 'Você precisa de 4 cartas para essa troca.');
+  });
+
+  test('porto 3:1 vale para todos os recursos e porto de ovelha faz 2:1 só de ovelha', () => {
+    const { game } = emptyMainPhase();
+    const generic = game.graph.hexVertices.get('0,-2')![4];
+    const wool = game.graph.hexVertices.get('2,-2')![1];
+    assert.deepEqual(game.tradeRatios('A'), { wood: 4, brick: 4, wool: 4, wheat: 4, ore: 4 });
+
+    game.buildings.set(generic, { owner: 'A', type: 'settlement' });
+    assert.deepEqual(game.tradeRatios('A'), { wood: 3, brick: 3, wool: 3, wheat: 3, ore: 3 });
+    game.buildings.set(wool, { owner: 'A', type: 'city' });
+    assert.deepEqual(game.tradeRatios('A'), { wood: 3, brick: 3, wool: 2, wheat: 3, ore: 3 });
+    assert.deepEqual(game.tradeRatios('B'), { wood: 4, brick: 4, wool: 4, wheat: 4, ore: 4 });
+
+    give(game, 'A', { wool: 2, ore: 3 });
+    ok(game, 'A', { type: 'bank_trade', give: 'wool', get: 'wheat' });
+    ok(game, 'A', { type: 'bank_trade', give: 'ore', get: 'wheat' });
+    assert.deepEqual(game.players.get('A')!.resources, { wood: 0, brick: 0, wool: 0, wheat: 2, ore: 0 });
+    assert.deepEqual(game.legalMoves('A').bankRatios, game.tradeRatios('A'));
+  });
+
+  test('banco sem o recurso pedido recusa a troca', () => {
+    const { game } = emptyMainPhase();
+    give(game, 'A', { wood: 4 });
+    game.bank.ore = 0;
+    assert.equal(game.toView('B').bank.ore, 0);
+    assert.equal(game.apply('A', { type: 'bank_trade', give: 'wood', get: 'ore' }), 'O banco não tem mais esse recurso.');
+  });
+});
+
+describe('comércio entre jogadores', () => {
+  function withHands() {
+    const g = emptyMainPhase();
+    give(g.game, 'A', { wood: 3 });
+    give(g.game, 'B', { brick: 2 });
+    give(g.game, 'C', { ore: 1 });
+    return g.game;
+  }
+
+  test('proposta, respostas e confirmação com quem aceitou', () => {
+    const game = withHands();
+    ok(game, 'A', { type: 'propose_trade', give: { wood: 2 }, get: { brick: 1 } });
+    assert.deepEqual(game.toView('C').tradeOffer, {
+      give: { wood: 2, brick: 0, wool: 0, wheat: 0, ore: 0 },
+      get: { wood: 0, brick: 1, wool: 0, wheat: 0, ore: 0 },
+      responses: {},
+    });
+
+    assert.equal(game.apply('A', { type: 'respond_trade', accept: true }), 'A oferta é sua.');
+    assert.equal(game.apply('C', { type: 'respond_trade', accept: true }), 'Você não tem as cartas pedidas.');
+    ok(game, 'C', { type: 'respond_trade', accept: false });
+    ok(game, 'B', { type: 'respond_trade', accept: true });
+    assert.deepEqual(game.toView('A').tradeOffer!.responses, { C: 'declined', B: 'accepted' });
+
+    assert.equal(game.apply('B', { type: 'confirm_trade', partnerId: 'B' }), 'Não é a sua vez.');
+    assert.equal(game.apply('A', { type: 'confirm_trade', partnerId: 'C' }), 'Esse jogador não aceitou a troca.');
+    ok(game, 'A', { type: 'confirm_trade', partnerId: 'B' });
+    assert.deepEqual(game.players.get('A')!.resources, { wood: 1, brick: 1, wool: 0, wheat: 0, ore: 0 });
+    assert.deepEqual(game.players.get('B')!.resources, { wood: 2, brick: 1, wool: 0, wheat: 0, ore: 0 });
+    assert.equal(game.tradeOffer, null);
+  });
+
+  test('ofertas inválidas são recusadas', () => {
+    const game = withHands();
+    assert.equal(game.apply('B', { type: 'propose_trade', give: { brick: 1 }, get: { wood: 1 } }), 'Não é a sua vez.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: { wood: 1 }, get: {} }), 'A troca precisa ter cartas dos dois lados.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: {}, get: { ore: 1 } }), 'A troca precisa ter cartas dos dois lados.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: { wood: 1 }, get: { wood: 2 } }), 'Não dá para trocar um recurso por ele mesmo.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: { wood: 4 }, get: { ore: 1 } }), 'Você não tem essas cartas.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: { wood: 1.5 }, get: { ore: 1 } }), 'Cartas inválidas.');
+    assert.equal(game.apply('A', { type: 'propose_trade', give: 'tudo' as never, get: { ore: 1 } }), 'Cartas inválidas.');
+    assert.equal(game.apply('B', { type: 'respond_trade', accept: true }), 'Não há oferta de troca.');
+    assert.equal(game.apply('A', { type: 'cancel_trade' }), 'Não há oferta de troca.');
+  });
+
+  test('a confirmação revalida as mãos', () => {
+    const game = withHands();
+    ok(game, 'A', { type: 'propose_trade', give: { wood: 2 }, get: { brick: 1 } });
+    ok(game, 'B', { type: 'respond_trade', accept: true });
+    game.players.get('B')!.resources.brick = 0;
+    assert.equal(game.apply('A', { type: 'confirm_trade', partnerId: 'B' }), 'O outro jogador não tem mais as cartas pedidas.');
+    game.players.get('B')!.resources.brick = 1;
+    game.players.get('A')!.resources.wood = 1;
+    assert.equal(game.apply('A', { type: 'confirm_trade', partnerId: 'B' }), 'Você não tem mais as cartas oferecidas.');
+  });
+
+  test('nova proposta zera as respostas; cancelar e passar a vez encerram a oferta', () => {
+    const game = withHands();
+    ok(game, 'A', { type: 'propose_trade', give: { wood: 1 }, get: { brick: 1 } });
+    ok(game, 'B', { type: 'respond_trade', accept: true });
+    ok(game, 'A', { type: 'propose_trade', give: { wood: 1 }, get: { ore: 1 } });
+    assert.deepEqual(game.toView('A').tradeOffer!.responses, {});
+    ok(game, 'A', { type: 'cancel_trade' });
+    assert.equal(game.tradeOffer, null);
+
+    ok(game, 'A', { type: 'propose_trade', give: { wood: 1 }, get: { ore: 1 } });
+    ok(game, 'A', { type: 'end_turn' });
+    assert.equal(game.tradeOffer, null);
+    assert.equal(game.apply('C', { type: 'respond_trade', accept: true }), 'Não há oferta de troca.');
   });
 });
