@@ -5,12 +5,14 @@ import { Room, RoomPlayer, PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, MIN_TURN_TIM
 import { generateBoard } from '../utils/boardGenerator';
 import { GameState, activeGames } from '../models/gameState';
 import { boardPayload, emitGameState, emitRoomState, onlineUserIds } from './broadcast';
-import { recordWinner } from './gameEvents';
+import { chatHistory, clearChat } from './chatEvents';
+import { scheduleBots } from './gameEvents';
 import { GameServer, GameSocket, onEvent } from './socket';
 
-// How long a player who dropped out of a waiting room keeps their seat (e.g. a page reload)
-const WAITING_ROOM_GRACE_MS = 20_000;
-const pendingRemovals = new Map<string, NodeJS.Timeout>(); // userId → scheduled removal
+// How long a player who dropped keeps their seat (e.g. a page reload) before it's freed in a
+// waiting room, or handed to a bot in a game
+const OFFLINE_GRACE_MS = 20_000;
+const pendingRemovals = new Map<string, NodeJS.Timeout>(); // userId → what happens when the grace ends
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -55,6 +57,7 @@ function removeFromWaitingRoom(io: GameServer, roomId: string, userId: string) {
     .all(roomId) as { user_id: string }[];
   if (remaining.length === 0) {
     db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+    clearChat(roomId);
     return;
   }
   db.prepare('UPDATE rooms SET host_id = ? WHERE id = ? AND host_id = ?').run(remaining[0].user_id, roomId, userId);
@@ -104,10 +107,13 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     socket.join(room.id);
     socket.data.roomId = room.id;
     emitRoomState(io, room.id);
+    socket.emit('chat_history', chatHistory(room.id));
     const game = activeGames.get(room.id);
     if (game) {
       socket.emit('board_generated', boardPayload(game));
-      socket.emit('game_state_update', game.toView(user.id));
+      game.setAway(user.id, false); // takes the seat back from the bot that covered for them
+      emitGameState(io, room.id);
+      scheduleBots(io, room.id);
     }
   });
 
@@ -166,9 +172,10 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
 
     reply({ ok: true, room: { id: room.id, code: room.code, maxPlayers: room.max_players, turnTimer: room.turn_timer } });
     emitRoomState(io, room.id);
+    socket.emit('chat_history', chatHistory(room.id));
   });
 
-  // Leave the waiting room, or give up / walk away from a game
+  // Leave the waiting room, or walk away from a game and let a bot take the seat
   onEvent(socket, 'leave_room', (_data, reply) => {
     const { userId, roomId } = socket.data;
     if (!roomId || !userId) return reply({ error: 'Não está em nenhuma sala.' });
@@ -181,11 +188,17 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     if (room?.status === 'waiting') {
       removeFromWaitingRoom(io, roomId, userId);
     } else if (game) {
-      const wasOver = game.winnerId !== null;
-      game.leave(userId);
-      if (!wasOver && game.winnerId) recordWinner(io, roomId, game.winnerId);
-      emitGameState(io, roomId);
-      emitRoomState(io, roomId);
+      game.leave(userId); // a bot takes the seat
+      if (!game.everyoneLeft) {
+        emitGameState(io, roomId);
+        emitRoomState(io, roomId);
+        scheduleBots(io, roomId);
+      } else {
+        // Nobody left to watch the bots play
+        activeGames.delete(roomId);
+        clearChat(roomId);
+        db.prepare("UPDATE rooms SET status = 'finished' WHERE id = ?").run(roomId);
+      }
     }
     reply({ ok: true });
   });
@@ -217,8 +230,8 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     emitGameState(io, roomId);
   });
 
-  // A dropped connection keeps the seat: in a game for good (others see the player offline),
-  // in a waiting room for a short grace period
+  // A dropped connection keeps the seat for a short grace period. After it, a waiting room frees
+  // the seat, and a game hands it to a bot until the player comes back.
   socket.on('disconnect', () => {
     try {
       const { userId, roomId } = socket.data;
@@ -226,20 +239,24 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
       emitRoomState(io, roomId);
       if (onlineUserIds(io, roomId).has(userId)) return; // still connected from another tab
 
-      const room = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
-      if (room?.status !== 'waiting') return;
       cancelPendingRemoval(userId);
       pendingRemovals.set(userId, setTimeout(() => {
         try {
           pendingRemovals.delete(userId);
-          const current = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
-          if (current?.status === 'waiting' && !onlineUserIds(io, roomId).has(userId)) {
+          if (onlineUserIds(io, roomId).has(userId)) return;
+          const room = db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as Pick<Room, 'status'> | undefined;
+          const game = activeGames.get(roomId);
+          if (room?.status === 'waiting') {
             removeFromWaitingRoom(io, roomId, userId);
+          } else if (game) {
+            game.setAway(userId, true);
+            emitGameState(io, roomId);
+            scheduleBots(io, roomId);
           }
         } catch (err) {
-          console.error('[WS] Erro ao liberar lugar na sala:', err);
+          console.error('[WS] Erro ao tratar jogador offline:', err);
         }
-      }, WAITING_ROOM_GRACE_MS));
+      }, OFFLINE_GRACE_MS));
     } catch (err) {
       console.error('[WS] Erro em disconnect:', err);
     }

@@ -118,7 +118,7 @@ export interface GameView {
   freeRoadsLeft: number;
   largestArmyHolder: string | null;
   longestRoadHolder: string | null;
-  leftPlayers: string[]; // gave up: their turns are skipped
+  bots: string[]; // seats the computer plays since their player left
   legal: {
     settlements: string[];
     roads: string[];

@@ -8,6 +8,7 @@ import { GameServer } from './events/socket';
 import { getDb } from './config/database';
 import { registerLobbyEvents } from './events/lobbyEvents';
 import { registerGameEvents } from './events/gameEvents';
+import { registerChatEvents } from './events/chatEvents';
 
 const PORT = process.env.PORT || 3001;
 
@@ -27,6 +28,7 @@ io.on('connection', (socket) => {
   console.log(`[WS] Conectado: ${socket.id}`);
   registerLobbyEvents(io, socket);
   registerGameEvents(io, socket);
+  registerChatEvents(io, socket);
 });
 
 app.get('/health', (_req, res) => {

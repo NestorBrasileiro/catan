@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { socket } from '../services/socket';
 import type { BoardData, GameAction, GameView } from '../components/Board/boardTypes';
-import { GameContext, type RoomState, type UserInfo } from './useGame';
+import { GameContext, type ChatMessage, type RoomState, type UserInfo } from './useGame';
 
 type AckResponse = { error?: string } & Record<string, unknown>;
 
@@ -42,6 +42,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [room, setRoom] = useState<RoomState | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
   const [gameState, setGameState] = useState<GameView | null>(null);
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
   const [resuming, setResuming] = useState(() => readToken() !== null);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +51,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setRoom(null);
     setBoard(null);
     setGameState(null);
+    setChat([]);
   }, []);
 
   useEffect(() => {
@@ -82,6 +84,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     socket.on('room_state_updated', (state: RoomState) => setRoom(state));
     socket.on('board_generated', (data: BoardData) => setBoard(data));
     socket.on('game_state_update', (state: GameView) => setGameState(state));
+    socket.on('chat_history', (messages: ChatMessage[]) => setChat(messages));
+    socket.on('chat_message', (message: ChatMessage) => setChat(messages => [...messages, message]));
 
     return () => {
       socket.off('connect');
@@ -89,6 +93,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       socket.off('room_state_updated');
       socket.off('board_generated');
       socket.off('game_state_update');
+      socket.off('chat_history');
+      socket.off('chat_message');
       socket.disconnect();
     };
   }, [clearRoom]);
@@ -130,6 +136,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
     await call('game_action', action);
   }, [call]);
 
+  const sendChat = useCallback(async (text: string) => {
+    await call('chat_message', { text });
+  }, [call]);
+
   // Forget this browser's session and start over with a new name (e.g. a second player in the same browser)
   const switchPlayer = useCallback(() => {
     saveToken(null);
@@ -143,8 +153,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   return (
     <GameContext.Provider value={{
-      user, room, board, gameState, connected, resuming,
-      register, createRoom, joinRoom, leaveRoom, startGame, sendAction, switchPlayer,
+      user, room, board, gameState, chat, connected, resuming,
+      register, createRoom, joinRoom, leaveRoom, startGame, sendAction, sendChat, switchPlayer,
       error, clearError,
     }}>
       {children}

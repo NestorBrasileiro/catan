@@ -23,11 +23,20 @@ export interface UserInfo {
   username: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  username: string;
+  text: string;
+  at: number; // epoch ms
+}
+
 export interface GameContextType {
   user: UserInfo | null;
   room: RoomState | null;
   board: BoardData | null;
   gameState: GameView | null;
+  chat: ChatMessage[];
   connected: boolean;
   resuming: boolean; // reconnecting a saved session
   register: (username: string) => Promise<void>;
@@ -36,6 +45,7 @@ export interface GameContextType {
   leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;
   sendAction: (action: GameAction) => Promise<void>;
+  sendChat: (text: string) => Promise<void>;
   switchPlayer: () => void;
   error: string | null;
   clearError: () => void;

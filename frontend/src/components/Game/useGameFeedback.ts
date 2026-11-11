@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { RESOURCE_INFO, RESOURCE_ORDER, type GameView, type ResourceGain, type ResourceType } from '../Board/boardTypes';
+import { hexScreenPoint } from '../Board/hexAnchor';
 import { playSound } from '../../services/sound';
 
 const FLIGHT_MS = 900;
@@ -45,11 +46,10 @@ function popHandCard(resource: ResourceType, amount: number, track: Track) {
 // One card flies from the hex to whoever received it: our own hand card, or the player's card count
 function flyCard(gain: ResourceGain, order: number, myId: string, track: Track) {
   const mine = gain.userId === myId;
-  const from = document.querySelector(`[data-hex="${gain.hexKey}"]`);
+  const start = hexScreenPoint(gain.hexKey);
   const to = document.querySelector<HTMLElement>(mine ? `[data-hand="${gain.resource}"]` : `[data-cards-of="${gain.userId}"]`);
-  if (!from || !to) return;
+  if (!start || !to) return;
 
-  const start = centerOf(from);
   const end = centerOf(to);
   const label = RESOURCE_INFO[gain.resource].emoji + (gain.amount > 1 ? `×${gain.amount}` : '');
   const card = floating('flying-card', label, start);

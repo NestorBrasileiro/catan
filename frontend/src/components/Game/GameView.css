@@ -388,3 +388,152 @@ button.play-btn.active {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
+
+.board-toggle {
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.board3d-loading {
+  aspect-ratio: 5 / 4;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: #0d4f73;
+}
+
+/* Fullscreen: the board takes all the height, the side panels scroll on their own */
+.game-layout.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  height: 100dvh;
+  padding: 0.75rem;
+  background: #1a1a2e;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.game-layout.fullscreen .game-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.game-layout.fullscreen .board-area {
+  flex: 1;
+  min-height: 0;
+}
+
+.game-layout.fullscreen .board3d {
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+.game-layout.fullscreen .board-svg {
+  height: 100%;
+  max-height: calc(100dvh - 5rem);
+}
+
+.game-layout.fullscreen .game-side {
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  .game-layout.fullscreen {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .game-layout.fullscreen .board-area { min-height: 60vh; }
+}
+
+.chat-list {
+  height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.chat-message {
+  overflow-wrap: anywhere;
+}
+
+.chat-message .color-dot {
+  margin-right: 0.35rem;
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.9rem;
+}
+
+.chat-form button {
+  width: auto;
+  margin: 0;
+  padding: 0.45rem 0.8rem;
+}
+
+.help-dialog {
+  margin: auto;
+  width: min(640px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 1px solid #2a3a5e;
+  border-radius: 14px;
+  background: #16213e;
+  color: #eee;
+}
+
+.help-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.help-content {
+  padding: 1.2rem 1.4rem 1.5rem;
+  line-height: 1.5;
+}
+
+.help-content header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.help-content h3 {
+  margin: 1.1rem 0 0.35rem;
+  color: #e94560;
+  font-size: 1rem;
+}
+
+.help-content ol,
+.help-content ul {
+  padding-left: 1.3rem;
+  margin: 0.3rem 0;
+}
+
+.help-content li {
+  margin-bottom: 0.35rem;
+}
+
+.help-resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+}
+
+.help-cost {
+  margin-left: 0.3rem;
+  letter-spacing: -0.1em;
+}

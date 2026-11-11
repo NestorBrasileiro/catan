@@ -1,16 +1,30 @@
-import { useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useGame } from '../../contexts/useGame';
 import Board from '../Board/Board';
 import { BUILD_COSTS, RESOURCE_INFO, RESOURCE_ORDER, type BuildKind, type GameAction } from '../Board/boardTypes';
+import ChatPanel from './ChatPanel';
 import Dice from './Dice';
 import DevCardsPanel from './DevCardsPanel';
 import DiscardPanel from './DiscardPanel';
+import HelpDialog from './HelpDialog';
 import IncomingOffer from './IncomingOffer';
 import SoundToggle from './SoundToggle';
 import TradePanel from './TradePanel';
 import { useGameFeedback } from './useGameFeedback';
 import { useRollReveal } from './useRollReveal';
 import './GameView.css';
+
+// three.js is heavy, so it only loads when the 3D board is shown
+const Board3D = lazy(() => import('../Board3D/Board3D'));
+const BOARD_MODE_KEY = 'catan.board2d';
+
+function savedBoardIs2D(): boolean {
+  try {
+    return localStorage.getItem(BOARD_MODE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
 const BUILD_LABELS: Record<BuildKind, string> = { road: 'Estrada', settlement: 'Aldeia', city: 'Cidade' };
@@ -26,8 +40,31 @@ export default function GameView() {
   const { room, user, board, gameState, sendAction, leaveRoom } = useGame();
   const [buildMode, setBuildMode] = useState<BuildKind | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [flat, setFlat] = useState(savedBoardIs2D);
+  const [showHelp, setShowHelp] = useState(false);
+  const [maximized, setMaximized] = useState(false);          // the game fills the browser window
+  const [browserFullscreen, setBrowserFullscreen] = useState(false); // the browser itself is fullscreen
+
+  useEffect(() => {
+    const sync = () => setBrowserFullscreen(document.fullscreenElement !== null);
+    document.addEventListener('fullscreenchange', sync);
+    return () => {
+      document.removeEventListener('fullscreenchange', sync);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    };
+  }, []);
   const { view: game, rolling } = useRollReveal(gameState);
   useGameFeedback(game, rolling, user?.id);
+
+  // With no development card to play first, rolling is the only thing to do: do it for the player,
+  // after a beat so they see the turn is theirs
+  const mustRoll = game?.phase === 'playing' && game.step === 'roll' && !rolling
+    && game.currentPlayerId === user?.id && game.legal?.devCardsToPlay.length === 0;
+  useEffect(() => {
+    if (!mustRoll) return;
+    const timer = setTimeout(() => sendAction({ type: 'roll_dice' }).catch(() => {}), 900);
+    return () => clearTimeout(timer);
+  }, [mustRoll, sendAction]);
 
   if (!room || !user || !board || !game) {
     return <div className="card"><h2>🎲 Carregando tabuleiro...</h2></div>;
@@ -85,7 +122,8 @@ export default function GameView() {
           ? `Construção de Estradas: coloque ${game.freeRoadsLeft} estrada(s) grátis`
           : `${current} está construindo estradas grátis`;
       case 'roll':
-        return isMyTurn ? 'Sua vez: role os dados' : `Vez de ${current}: aguardando os dados`;
+        if (mustRoll) return 'Sua vez: rolando os dados…';
+        return isMyTurn ? 'Sua vez: role os dados ou jogue uma carta' : `Vez de ${current}: aguardando os dados`;
       default:
         if (!isMyTurn) return `Vez de ${current}`;
         return mode ? `Escolha no tabuleiro onde construir: ${BUILD_LABELS[mode].toLowerCase()}` : 'Sua vez: construa ou passe a vez';
@@ -99,30 +137,75 @@ export default function GameView() {
     return `${who(robbery.thiefId)} roubou ${card} de ${who(robbery.victimId, false)}`;
   })();
 
+  const boardProps = {
+    board,
+    game,
+    highlightVertices: mode === 'settlement' ? spots.settlement : mode === 'city' ? spots.city : [],
+    highlightEdges: mode === 'road' ? spots.road : [],
+    highlightHexes: legal.robberHexes,
+    onVertexClick: (vertexKey: string) => act(mode === 'city' ? { type: 'build_city', vertexKey } : { type: 'build_settlement', vertexKey }),
+    onEdgeClick: (edgeKey: string) => act({ type: 'build_road', edgeKey }),
+    onHexClick: (hexKey: string) => act({ type: 'move_robber', hexKey }),
+  };
+  const toggleBoard = () => {
+    setFlat(!flat);
+    try {
+      localStorage.setItem(BOARD_MODE_KEY, flat ? '0' : '1');
+    } catch { /* not remembered */ }
+  };
+
+  const toggleBrowserFullscreen = () => {
+    const change = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    change.catch(() => {}); // the browser may refuse; the game just stays as it is
+  };
+
   const needsMe = isMyTurn || myDiscard > 0 || game.phase === 'finished';
   const showTurnPanel = robberyText || (isMyTurn && (game.step === 'roll' || game.step === 'main'));
 
   return (
-    <div className="game-layout">
+    <div className={`game-layout ${maximized || browserFullscreen ? 'fullscreen' : ''}`}>
       <div className="game-main">
         <div className="status-row">
           <div className={`status-bar ${needsMe ? 'highlight' : ''}`} role="status">
             {rolling ? '🎲 Rolando os dados…' : status}
           </div>
+          <button className="sound-toggle btn-secondary board-toggle" onClick={toggleBoard}
+            title={flat ? 'Mudar para o tabuleiro 3D' : 'Mudar para o tabuleiro 2D'}>
+            {flat ? '3D' : '2D'}
+          </button>
+          <button className="sound-toggle btn-secondary board-toggle" onClick={() => setShowHelp(true)}
+            aria-label="Como jogar" title="Como jogar">?</button>
           <SoundToggle />
+          {!browserFullscreen && (
+            <button className="sound-toggle btn-secondary" onClick={() => setMaximized(!maximized)}
+              aria-label={maximized ? 'Restaurar tamanho' : 'Maximizar o jogo na janela'}
+              title={maximized ? 'Restaurar tamanho' : 'Maximizar o jogo na janela'}>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden>
+                {maximized
+                  ? <path d="M5 5V2h9v9h-3M2 5h9v9H2z" />
+                  : <path d="M2 2h12v12H2zM2 5h12" />}
+              </svg>
+            </button>
+          )}
+          {document.fullscreenEnabled && (
+            <button className="sound-toggle btn-secondary" onClick={toggleBrowserFullscreen}
+              aria-label={browserFullscreen ? 'Sair da tela cheia' : 'Tela cheia do navegador'}
+              title={browserFullscreen ? 'Sair da tela cheia' : 'Tela cheia do navegador'}>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                {browserFullscreen
+                  ? <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+                  : <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />}
+              </svg>
+            </button>
+          )}
         </div>
         <div className="board-area">
-          <Board
-            board={board}
-            game={game}
-            highlightVertices={mode === 'settlement' ? spots.settlement : mode === 'city' ? spots.city : []}
-            highlightEdges={mode === 'road' ? spots.road : []}
-            highlightHexes={legal.robberHexes}
-            onVertexClick={vertexKey => act(mode === 'city' ? { type: 'build_city', vertexKey } : { type: 'build_settlement', vertexKey })}
-            onEdgeClick={edgeKey => act({ type: 'build_road', edgeKey })}
-            onHexClick={hexKey => act({ type: 'move_robber', hexKey })}
-          />
-          {game.phase !== 'setup' && <Dice dice={game.dice} rolling={rolling} />}
+          {flat ? <Board {...boardProps} /> : (
+            <Suspense fallback={<div className="board3d-loading">Carregando tabuleiro 3D…</div>}>
+              <Board3D {...boardProps} rolling={rolling} />
+            </Suspense>
+          )}
+          {game.phase !== 'setup' && <Dice dice={game.dice} rolling={rolling} sumOnly={!flat} />}
         </div>
       </div>
 
@@ -156,7 +239,7 @@ export default function GameView() {
           <ul className="score-list">
             {game.playerOrder.map(id => {
               const p = game.players[id];
-              const left = game.leftPlayers.includes(id);
+              const left = game.bots.includes(id);
               const offline = !left && room.players.find(rp => rp.user_id === id)?.online === false;
               return (
                 <li key={id} className={id === game.currentPlayerId && game.phase !== 'finished' ? 'current' : ''}>
@@ -164,7 +247,7 @@ export default function GameView() {
                     <span className="color-dot" style={{ backgroundColor: p.color }} />
                     <span className={`player-name ${left || offline ? 'away' : ''}`}>
                       {nameOf(id)}{id === user.id && ' (você)'}
-                      {left && <span className="presence"> · saiu</span>}
+                      {left && <span className="presence"> · 🤖 bot</span>}
                       {offline && <span className="presence"> · offline</span>}
                     </span>
                     <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
@@ -245,12 +328,13 @@ export default function GameView() {
           <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
             opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
+        <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
         <section className="panel leave-panel">
           {game.phase === 'finished' ? (
             <button className="wide btn-secondary" onClick={() => leaveRoom().catch(() => {})}>Voltar ao lobby</button>
           ) : confirmingLeave ? (
             <>
-              <p>Sair da partida? Sua vez passa a ser pulada, suas cartas voltam ao banco e não dá para voltar.</p>
+              <p>Sair da partida? Um bot assume o seu lugar, com suas cartas e construções, e não dá para voltar.</p>
               <div className="offer-actions">
                 <button onClick={() => leaveRoom().catch(() => {})}>Sair</button>
                 <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
@@ -261,6 +345,7 @@ export default function GameView() {
           )}
         </section>
       </aside>
+      {showHelp && <HelpDialog onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

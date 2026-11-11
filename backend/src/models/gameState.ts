@@ -154,7 +154,7 @@ export interface GameView {
   freeRoadsLeft: number;               // during Road Building
   largestArmyHolder: string | null;
   longestRoadHolder: string | null;
-  leftPlayers: string[];               // gave up the game: their turns are skipped
+  bots: string[];                      // seats the computer is playing (player left or is offline)
   legal: LegalMoves | null;            // only for the current player
 }
 
@@ -220,7 +220,8 @@ export class GameState {
   freeRoadsLeft = 0;
   largestArmyHolder: string | null = null;
   longestRoadHolder: string | null = null;
-  readonly leftPlayers = new Set<string>();
+  readonly bots = new Set<string>(); // seats the computer is playing (player left or is offline)
+  readonly leftPlayers = new Set<string>(); // gone for good: they can't take their seat back
   private setupTurn = 0; // walks the player order forward, then backward
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
   private resumeStep: TurnStep = 'main'; // where the turn continues after the robber or Road Building
@@ -258,7 +259,6 @@ export class GameState {
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
-    if (this.leftPlayers.has(userId)) return 'Você saiu da partida.';
     const err = this.dispatch(userId, action);
     // A player wins the moment they have 10 points during their own turn (hidden points included),
     // which also covers starting a turn with points gained during someone else's
@@ -523,7 +523,7 @@ export class GameState {
 
       for (const vertexKey of this.graph.hexVertices.get(hexKey)!) {
         const building = this.buildings.get(vertexKey);
-        if (!building || this.leftPlayers.has(building.owner)) continue;
+        if (!building) continue;
         claims.push({ hexKey, userId: building.owner, resource, amount: building.type === 'city' ? 2 : 1 });
       }
     }
@@ -755,71 +755,55 @@ export class GameState {
     return null;
   }
 
-  // Hands the turn to the next player still in the game
   private nextTurn() {
     this.players.get(this.currentPlayerId)!.newDevCards = noDevCards();
     this.devCardPlayed = false;
-    do {
-      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
-    } while (this.leftPlayers.has(this.currentPlayerId));
+    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
     this.step = 'roll';
     this.lastRobbery = null;
     this.tradeOffer = null;
   }
 
-  // Setup order is 1-2-3-4 then 4-3-2-1 (skipping anyone who left); the first player then opens the game
+  // Setup order is 1-2-3-4 then 4-3-2-1; the first player then opens the game
   private advanceSetupTurn() {
     const n = this.playerOrder.length;
     const indexAt = (turn: number) => (turn < n ? turn : 2 * n - 1 - turn);
     this.step = 'place_settlement';
-    do {
-      this.setupTurn++;
-    } while (this.setupTurn < 2 * n && this.leftPlayers.has(this.playerOrder[indexAt(this.setupTurn)]));
+    this.setupTurn++;
 
     if (this.setupTurn < 2 * n) {
       this.currentPlayerIndex = indexAt(this.setupTurn);
     } else {
       this.phase = 'playing';
       this.step = 'roll';
-      this.currentPlayerIndex = this.playerOrder.findIndex(id => !this.leftPlayers.has(id));
+      this.currentPlayerIndex = 0;
     }
   }
 
   // ===== LEAVING =====
 
-  // A player who gives up stays on the board, but their turns are skipped, their hand goes back
-  // to the bank and they stop producing. The last player standing wins.
+  // A player who leaves keeps their seat, cards and buildings; the computer plays it from then on
   leave(userId: string): string | null {
     if (!this.players.has(userId)) return 'Jogador inválido.';
-    if (this.leftPlayers.has(userId)) return null;
     this.leftPlayers.add(userId);
-    if (this.phase === 'finished') return null; // just leaving the table after the end
-
-    this.pay(userId, { ...this.players.get(userId)!.resources }); // a copy: pay() empties the hand as it goes
-    this.pendingDiscards.delete(userId);
-    this.tradeOffer?.responses.delete(userId);
-
-    const remaining = this.playerOrder.filter(id => !this.leftPlayers.has(id));
-    if (remaining.length === 1) {
-      this.phase = 'finished';
-      this.winnerId = remaining[0];
-      return null;
-    }
-
-    if (userId === this.currentPlayerId) {
-      // Whatever the turn was in the middle of is dropped
-      this.pendingDiscards.clear();
-      this.freeRoadsLeft = 0;
-      if (this.phase === 'setup') {
-        this.lastPlacedSettlement = null;
-        this.advanceSetupTurn();
-      } else {
-        this.nextTurn();
-      }
-    } else if (this.step === 'discard' && this.pendingDiscards.size === 0) {
-      this.step = 'move_robber';
-    }
+    this.bots.add(userId);
     return null;
+  }
+
+  // The computer covers for a player who dropped offline, and hands the seat back when they return
+  setAway(userId: string, away: boolean) {
+    if (!this.players.has(userId) || this.leftPlayers.has(userId)) return;
+    if (away) this.bots.add(userId);
+    else this.bots.delete(userId);
+  }
+
+  // Someone is playing their own seat right now
+  get hasHumans(): boolean {
+    return this.playerOrder.some(id => !this.bots.has(id));
+  }
+
+  get everyoneLeft(): boolean {
+    return this.playerOrder.every(id => this.leftPlayers.has(id));
   }
 
   private collectInitialResources(userId: string, vertexKey: string) {
@@ -961,7 +945,7 @@ export class GameState {
       freeRoadsLeft: this.freeRoadsLeft,
       largestArmyHolder: this.largestArmyHolder,
       longestRoadHolder: this.longestRoadHolder,
-      leftPlayers: [...this.leftPlayers],
+      bots: [...this.bots],
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
     };
   }

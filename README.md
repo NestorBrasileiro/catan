@@ -77,8 +77,10 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Maior Exército (3+ Cavaleiros) e Maior Estrada (5+, cortada por construção adversária; empate mantém o dono; se o dono perde a liderança e outros empatam, ninguém fica), 2 pontos cada
 - ✅ Vitória com 10 pontos durante a própria vez, contando pontos escondidos e também no início do turno (sala fica `finished` e vai para `game_history`)
 - ✅ Reconexão: recarregar a página ou perder a conexão devolve o jogador ao mesmo lugar (sessão por token; só o hash fica no banco). Na sala de espera, quem cai tem 20 s para voltar; se o host sai, o próximo vira host
-- ✅ Presença e saída: o placar mostra quem está offline; "Sair da partida" pula a vez do jogador, devolve as cartas dele ao banco e ele para de produzir; o último que sobra vence
+- ✅ Presença e saída: o placar mostra quem está offline; quem clica em "Sair da partida" é substituído por um bot, que fica com as cartas e construções e joga sozinho (constrói, compra e joga cartas, troca com o banco, move o ladrão; recusa trocas entre jogadores). Quem fica offline por mais de 20 s também é coberto pelo bot, e retoma o lugar ao voltar. Se todos os humanos saem, a partida é encerrada; se todos estão só offline, ela espera
 - ✅ Animações e som: os dados rolam no canto do tabuleiro e o resultado só aparece quando param; as cartas produzidas voam do hexágono até a mão de quem ganhou. Sons gerados no navegador (sem arquivos de áudio) para dados, cartas, construção, sua vez, ladrão, oferta de troca e fim de jogo, com botão 🔊/🔇 que fica salvo. Quem tem "reduzir movimento" ligado no sistema não vê as animações
+- ✅ Tabuleiro 3D (three.js): terrenos com relevo, portos como barcos, peças que caem no lugar, ladrão que anda e dados que rolam na cena. Arraste para girar a câmera e role para aproximar. O botão 2D/3D ao lado do status volta para o tabuleiro plano (a escolha fica salva). Há também um botão para maximizar o jogo na janela e outro para a tela cheia do navegador
+- ✅ Chat na partida (últimas 100 mensagens ficam guardadas para quem recarrega), guia "Como jogar" no botão "?" (regras, custos, cartas, ladrão, comércio, prêmios) e dados automáticos: na sua vez, sem carta de desenvolvimento para jogar, os dados rolam sozinhos
 - ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)
 
 ## Eventos WebSocket (Cliente → Servidor)
@@ -92,6 +94,7 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 | `create_room` | `{ maxPlayers (2–4), turnTimer (30–600) }` | `{ ok, room }` |
 | `join_room` | `{ code }` | `{ ok, room }` |
 | `leave_room` | `{}` (sala de espera: libera o lugar; partida: desiste) | `{ ok }` |
+| `chat_message` | `{ text }` (até 300 caracteres) | `{ ok }` |
 | `start_game` | `{}` (só o host) | `{ ok }` |
 | `game_action` | `{ type: 'build_settlement', vertexKey }` · `{ type: 'build_road', edgeKey }` · `{ type: 'build_city', vertexKey }` · `{ type: 'roll_dice' }` · `{ type: 'discard', resources }` (qualquer jogador que deva cartas) · `{ type: 'move_robber', hexKey }` · `{ type: 'steal', victimId }` · `{ type: 'bank_trade', give, get }` · `{ type: 'propose_trade', give, get }` · `{ type: 'respond_trade', accept }` (os outros jogadores) · `{ type: 'confirm_trade', partnerId }` · `{ type: 'cancel_trade' }` · `{ type: 'buy_dev_card' }` · `{ type: 'play_knight' }` · `{ type: 'play_road_building' }` · `{ type: 'play_year_of_plenty', resources: [r1, r2] }` · `{ type: 'play_monopoly', resource }` · `{ type: 'end_turn' }` | `{ ok }` |
 
