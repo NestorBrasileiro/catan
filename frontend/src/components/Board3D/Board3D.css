@@ -1,25 +1,46 @@
+/* The world fills its container: in the game and in the lobby that is the whole browser tab */
 .board3d {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 5 / 4;
-  max-height: 82vh;
-  border-radius: 20px;
-  overflow: hidden;
-  border: 3px solid #1a4a6a;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  background: #0d4f73;
+  position: absolute;
+  inset: 0;
+  background: #0b3f5f;
 }
 
-/* One finger orbits the camera, so the page doesn't scroll from inside the board */
+/* One finger moves the map, so the page doesn't scroll or zoom from inside it */
 .board3d canvas {
   touch-action: none;
+  display: block;
 }
 
-.board3d-hint {
-  position: absolute;
-  right: 12px;
-  bottom: 8px;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.6);
+.board3d.backdrop {
   pointer-events: none;
 }
+
+/* Map pins drawn over the 3D scene (labels and the production map) */
+.map-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  font: 600 12px/1.3 var(--font-ui, system-ui, sans-serif);
+  color: #fff;
+  background: rgba(14, 20, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+}
+
+.map-pin.heat {
+  flex-direction: column;
+  gap: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
+  line-height: 1.1;
+}
+.map-pin.heat strong { font-size: 15px; }
+.map-pin.heat span { font-size: 10px; letter-spacing: 1px; color: #fbbf24; }
+.map-pin.heat small { font-size: 10px; color: rgba(255, 255, 255, 0.7); }
+.map-pin.heat.blocked { opacity: 0.45; text-decoration: line-through; }

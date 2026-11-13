@@ -50,6 +50,27 @@ const NUMBER_TOKENS = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12
 
 const PORT_TYPES: PortType[] = ['3:1', '3:1', '3:1', '3:1', 'wood', 'brick', 'wool', 'wheat', 'ore'];
 
+// 5-6 player extension: 30 hexes, 28 number tokens, 11 ports (one more 3:1 and one more wool)
+const TERRAINS_XL: TerrainType[] = [
+  ...Array<TerrainType>(6).fill('forest'),
+  ...Array<TerrainType>(6).fill('pasture'),
+  ...Array<TerrainType>(6).fill('fields'),
+  ...Array<TerrainType>(5).fill('hills'),
+  ...Array<TerrainType>(5).fill('mountains'),
+  'desert', 'desert',
+];
+
+const NUMBER_TOKENS_XL = [
+  2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12,
+];
+
+const PORT_TYPES_XL: PortType[] = ['3:1', '3:1', '3:1', '3:1', '3:1', 'wood', 'brick', 'wool', 'wool', 'wheat', 'ore'];
+
+// The extension's frame needs more than 4 seats
+export function isLargeBoard(players: number) {
+  return players > 4;
+}
+
 // ============================================================
 // EDGE & NEIGHBOR SYSTEM
 // ============================================================
@@ -103,6 +124,20 @@ function generateHexCoords(maxRing: number): { q: number; r: number }[] {
     }
   }
 
+  return coords;
+}
+
+// The extension's island: rows of 3, 4, 5, 6, 5, 4 and 3 hexes. Rows alternate half a hex, so the
+// widest row can't sit on q = 0; every row is centered on the same vertical line instead.
+function generateLargeHexCoords(): { q: number; r: number }[] {
+  const rows: Record<number, [number, number]> = { // r → first q, hex count
+    [-3]: [0, 3], [-2]: [-1, 4], [-1]: [-2, 5], 0: [-3, 6], 1: [-3, 5], 2: [-3, 4], 3: [-3, 3],
+  };
+  const coords: { q: number; r: number }[] = [];
+  for (let r = -3; r <= 3; r++) {
+    const [first, count] = rows[r];
+    for (let i = 0; i < count; i++) coords.push({ q: first + i, r });
+  }
   return coords;
 }
 
@@ -163,11 +198,11 @@ function findOceanEdgesOrdered(hexes: { q: number; r: number }[]): OceanEdge[] {
 }
 
 /**
- * Spread the 9 ports evenly around the coast (gaps of 2-2-3 edges, like the official frame).
+ * Spread the ports evenly around the coast (gaps of 2-2-3 edges, like the official frame).
  */
-function generatePorts(hexes: { q: number; r: number }[]): Port[] {
+function generatePorts(hexes: { q: number; r: number }[], portTypes: PortType[]): Port[] {
   const oceanEdges = findOceanEdgesOrdered(hexes);
-  const types = shuffle(PORT_TYPES);
+  const types = shuffle(portTypes);
   const step = oceanEdges.length / types.length;
 
   return types.map((type, i) => {
@@ -176,13 +211,15 @@ function generatePorts(hexes: { q: number; r: number }[]): Port[] {
   });
 }
 
-export function generateBoard(): BoardData {
-  const coords = generateHexCoords(2);
+// The base island for 2-4 players, the extension's larger one for 5-6
+export function generateBoard(players = 4): BoardData {
+  const large = isLargeBoard(players);
+  const coords = large ? generateLargeHexCoords() : generateHexCoords(2);
 
   let hexes: HexTile[];
   do {
-    const terrains = shuffle(TERRAINS);
-    const numbers = shuffle(NUMBER_TOKENS);
+    const terrains = shuffle(large ? TERRAINS_XL : TERRAINS);
+    const numbers = shuffle(large ? NUMBER_TOKENS_XL : NUMBER_TOKENS);
     let next = 0;
     hexes = coords.map((c, i) => ({
       q: c.q,
@@ -192,5 +229,5 @@ export function generateBoard(): BoardData {
     }));
   } while (hasAdjacentRedNumbers(hexes));
 
-  return { hexes, ports: generatePorts(coords) };
+  return { hexes, ports: generatePorts(coords, large ? PORT_TYPES_XL : PORT_TYPES) };
 }

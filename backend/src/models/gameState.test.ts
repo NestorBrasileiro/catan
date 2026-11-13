@@ -853,3 +853,44 @@ describe('jogador que sai', () => {
     assert.deepEqual(game.toView('A').bots, ['C']);
   });
 });
+
+test('5-6 jogadores: banco com 24 de cada recurso, baralho de 34 cartas e ladrão num deserto', () => {
+  const six = ['A', 'B', 'C', 'D', 'E', 'F'].map((userId, i) => ({ userId, color: `c${i}` }));
+  const game = new GameState(generateBoard(6), six);
+  for (const r of RESOURCES) assert.equal(game.bank[r], 24);
+  assert.equal(game.devDeck.length, 34);
+  assert.equal(game.devDeck.filter(c => c === 'knight').length, 20);
+  const robber = game.board.hexes.find(h => `${h.q},${h.r}` === game.robberHex)!;
+  assert.equal(robber.terrain, 'desert');
+
+  const base = new GameState(generateBoard(4), PLAYERS);
+  assert.equal(base.bank.wood, BANK_SIZE);
+  assert.equal(base.devDeck.length, 25);
+});
+
+describe('registro da partida', () => {
+  test('cada ação gera uma linha, e a carta roubada só aparece para ladrão e vítima', () => {
+    const { game } = newGame();
+    assert.equal(game.log[0].event.type, 'start');
+    const first = game.currentPlayerId;
+    const legal = game.toView(first).legal!;
+    assert.equal(game.apply(first, { type: 'build_settlement', vertexKey: legal.settlements[0] }), null);
+    const last = game.log[game.log.length - 1];
+    assert.equal(last.userId, first);
+    assert.equal(last.event.type, 'place_settlement');
+
+    // a refused action leaves no trace
+    const size = game.log.length;
+    assert.notEqual(game.apply(first, { type: 'end_turn' }), null);
+    assert.equal(game.log.length, size);
+
+    game.log.push({ id: 999, at: 0, userId: 'A', event: { type: 'steal', victimId: 'B', resource: 'ore' } });
+    const seen = (viewer: string) => {
+      const e = game.toView(viewer).log.find(l => l.id === 999)!.event;
+      return e.type === 'steal' ? e.resource : undefined;
+    };
+    assert.equal(seen('A'), 'ore');
+    assert.equal(seen('B'), 'ore');
+    assert.equal(seen('C'), null);
+  });
+});

@@ -8,7 +8,6 @@ const SIZE = 0.5;
 const CUBE = new BoxGeometry(SIZE, SIZE, SIZE);
 const TRAY = new BoxGeometry(1.7, 0.08, 1.1);
 const TRAY_MATERIAL = new MeshStandardMaterial({ map: woodTexture(), color: '#b08a6a', roughness: 0.7 });
-const DICE_POSITION: Vec3 = [-3.25, 0.06, 4.35]; // on the water, off the board's front-left coast
 
 // Value on each side of the cube, in the order three.js lists them: +x, -x, +y, -y, +z, -z
 const SIDES = [3, 4, 1, 6, 2, 5];
@@ -62,11 +61,12 @@ function Die({ value, rolling, background, pip, x, spin }: DieProps) {
   return <mesh ref={ref} geometry={CUBE} material={materials} position={[x, restY, 0]} castShadow />;
 }
 
-export default function Dice3D({ dice, rolling }: { dice: [number, number] | null; rolling: boolean }) {
+// The tray floats on the water, off the island's front-left coast
+export default function Dice3D({ dice, rolling, position }: { dice: [number, number] | null; rolling: boolean; position: Vec3 }) {
   if (!dice && !rolling) return null; // nobody has rolled yet
   const [a, b] = dice ?? [1, 1];
   return (
-    <group position={DICE_POSITION}>
+    <group position={position}>
       <mesh geometry={TRAY} material={TRAY_MATERIAL} receiveShadow castShadow />
       <Die value={a} rolling={rolling} background="#c8102e" pip="#ffffff" x={-0.36} spin={1} />
       <Die value={b} rolling={rolling} background="#f2c230" pip="#2b2b2b" x={0.36} spin={-0.7} />

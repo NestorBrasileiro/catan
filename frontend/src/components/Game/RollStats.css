@@ -23,7 +23,7 @@
   flex-direction: column;
   align-items: center;
   font-size: 0.75rem;
-  color: #9aa6c4;
+  color: var(--text-muted);
 }
 
 .roll-count {
@@ -36,13 +36,13 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  border-bottom: 1px solid #2a3a5e; /* the baseline the bars grow from */
+  border-bottom: 1px solid var(--glass-border); /* the baseline the bars grow from */
 }
 
 /* Thin bars, rounded at the top and square on the baseline */
 .roll-bar {
   width: min(14px, 70%);
-  background: #3f8fe6;
+  background: var(--info);
   border-radius: 4px 4px 0 0;
   transition: height 0.3s ease-out;
 }
@@ -51,7 +51,7 @@
 .roll-expected,
 .roll-expected-key {
   height: 2px;
-  background: #e8eefc;
+  background: var(--text);
   opacity: 0.75;
 }
 .roll-expected {
@@ -79,7 +79,7 @@
   font-weight: 800;
 }
 .roll-chart li.last .roll-sum {
-  background: #2a3a5e;
+  background: var(--glass-border);
   border-radius: 999px;
   padding: 0 0.35rem;
 }

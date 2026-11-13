@@ -115,8 +115,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, [call]);
 
-  const createRoom = useCallback(async (maxPlayers: number, turnTimer: number) => {
-    await call('create_room', { maxPlayers, turnTimer });
+  const createRoom = useCallback(async (maxPlayers: number, turnTimer: number, bots = 0) => {
+    await call('create_room', { maxPlayers, turnTimer, bots });
   }, [call]);
 
   const joinRoom = useCallback(async (code: string) => {
@@ -130,6 +130,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const startGame = useCallback(async () => {
     await call('start_game');
+  }, [call]);
+
+  const addBot = useCallback(async () => {
+    await call('add_bot');
+  }, [call]);
+
+  const removeBot = useCallback(async (botId: string) => {
+    await call('remove_bot', { userId: botId });
   }, [call]);
 
   const sendAction = useCallback(async (action: GameAction) => {
@@ -154,7 +162,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return (
     <GameContext.Provider value={{
       user, room, board, gameState, chat, connected, resuming,
-      register, createRoom, joinRoom, leaveRoom, startGame, sendAction, sendChat, switchPlayer,
+      register, createRoom, joinRoom, leaveRoom, startGame, addBot, removeBot, sendAction, sendChat, switchPlayer,
       error, clearError,
     }}>
       {children}

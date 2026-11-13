@@ -6,6 +6,7 @@ export interface Player {
   username: string;
   color: string;
   online: boolean;
+  bot?: boolean; // a seat the host gave to the computer
 }
 
 export interface RoomState {
@@ -40,10 +41,12 @@ export interface GameContextType {
   connected: boolean;
   resuming: boolean; // reconnecting a saved session
   register: (username: string) => Promise<void>;
-  createRoom: (maxPlayers: number, turnTimer: number) => Promise<void>;
+  createRoom: (maxPlayers: number, turnTimer: number, bots?: number) => Promise<void>;
   joinRoom: (code: string) => Promise<void>;
   leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;
+  addBot: () => Promise<void>;
+  removeBot: (botId: string) => Promise<void>;
   sendAction: (action: GameAction) => Promise<void>;
   sendChat: (text: string) => Promise<void>;
   switchPlayer: () => void;

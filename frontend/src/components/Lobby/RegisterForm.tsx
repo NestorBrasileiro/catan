@@ -16,23 +16,25 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="card">
-      <h2>🏝️ Catan dos Crias</h2>
+    <div className="lobby-card glass">
+      <h1>Bem-vindo à ilha</h1>
+      <p className="lead">Colonize, troque e construa até 10 pontos. Escolha um nome para entrar.</p>
       <form onSubmit={handleSubmit}>
         <input
           type="text"
           placeholder="Seu nome"
+          aria-label="Seu nome"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           minLength={2}
           maxLength={20}
+          autoFocus
           required
         />
         <button type="submit" disabled={loading}>
-          {loading ? 'Entrando...' : 'Entrar'}
+          {loading ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
     </div>
   );
 }
-

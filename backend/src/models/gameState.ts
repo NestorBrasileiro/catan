@@ -41,6 +41,9 @@ export const COSTS = {
 } satisfies Record<string, Partial<Resources>>;
 
 export const DEV_DECK: DevCards = { knight: 14, victory_point: 5, road_building: 2, year_of_plenty: 2, monopoly: 2 };
+// 5-6 player extension: 34 cards and 24 of each resource in the bank
+export const DEV_DECK_XL: DevCards = { knight: 20, victory_point: 5, road_building: 3, year_of_plenty: 3, monopoly: 3 };
+export const BANK_SIZE_XL = 24;
 const PLAYABLE_DEV_CARDS: PlayableDevCard[] = ['knight', 'road_building', 'year_of_plenty', 'monopoly'];
 export const LARGEST_ARMY_MIN = 3;
 export const LONGEST_ROAD_MIN = 5;
@@ -131,6 +134,37 @@ interface Robbery {
   resource: ResourceType | null; // hidden from everyone but thief and victim
 }
 
+// One line of the game's log. Clients turn it into text with names and colors.
+export type LogEvent =
+  | { type: 'place_settlement' | 'build_settlement' | 'build_city'; vertexKey: string }
+  | { type: 'place_road' | 'build_road' | 'free_road'; edgeKey: string }
+  | { type: 'roll'; dice: [number, number] }
+  | { type: 'produce'; gains: { userId: string; resource: ResourceType; amount: number }[] }
+  | { type: 'discard'; count: number }
+  | { type: 'robber'; hexKey: string }
+  | { type: 'steal'; victimId: string; resource: ResourceType | null } // resource hidden from everyone else
+  | { type: 'bank_trade'; give: ResourceType; amount: number; get: ResourceType }
+  | { type: 'offer'; give: Resources; get: Resources }
+  | { type: 'offer_answer'; accepted: boolean }
+  | { type: 'trade'; partnerId: string; give: Resources; get: Resources }
+  | { type: 'offer_cancel' }
+  | { type: 'buy_dev_card' }
+  | { type: 'play_card'; card: PlayableDevCard; resources?: ResourceType[]; resource?: ResourceType; taken?: number }
+  | { type: 'award'; award: 'largest_army' | 'longest_road'; lost: string | null } // userId = new holder or null
+  | { type: 'end_turn' }
+  | { type: 'win'; points: number }
+  | { type: 'left' }
+  | { type: 'start'; firstId: string };
+
+export interface LogEntry {
+  id: number;
+  at: number;             // epoch ms
+  userId: string | null;  // who did it (null: the game itself)
+  event: LogEvent;
+}
+
+const LOG_LIMIT = 300;    // kept in memory per game; the view sends the newest ones
+
 export interface GameView {
   phase: GamePhase;
   step: TurnStep;
@@ -157,6 +191,7 @@ export interface GameView {
   longestRoadHolder: string | null;
   bots: string[];                      // seats the computer is playing (player left or is offline)
   legal: LegalMoves | null;            // only for the current player
+  log: LogEntry[];                     // newest last; private details only for who may see them
 }
 
 function resources(amount: number): Resources {
@@ -183,8 +218,8 @@ function noDevCards(): DevCards {
   return { knight: 0, victory_point: 0, road_building: 0, year_of_plenty: 0, monopoly: 0 };
 }
 
-function shuffledDeck(): DevCardType[] {
-  const deck = (Object.keys(DEV_DECK) as DevCardType[]).flatMap(card => Array<DevCardType>(DEV_DECK[card]).fill(card));
+function shuffledDeck(cards: DevCards): DevCardType[] {
+  const deck = (Object.keys(cards) as DevCardType[]).flatMap(card => Array<DevCardType>(cards[card]).fill(card));
   for (let i = deck.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -206,7 +241,7 @@ export class GameState {
   readonly graph: BoardGraph;
   readonly buildings = new Map<string, Building>();
   readonly roads = new Map<string, string>();
-  readonly bank: Resources = resources(BANK_SIZE);
+  readonly bank: Resources;
   robberHex: string;
   dice: [number, number] | null = null;
   rollCount = 0;
@@ -217,13 +252,14 @@ export class GameState {
   lastRobbery: Robbery | null = null;
   tradeOffer: TradeOffer | null = null;
   readonly ports = new Map<string, PortType>(); // vertexKey → port it gives access to
-  devDeck: DevCardType[] = shuffledDeck(); // drawn from the end
+  devDeck: DevCardType[]; // drawn from the end
   devCardPlayed = false;
   freeRoadsLeft = 0;
   largestArmyHolder: string | null = null;
   longestRoadHolder: string | null = null;
   readonly bots = new Set<string>(); // seats the computer is playing (player left or is offline)
   readonly leftPlayers = new Set<string>(); // gone for good: they can't take their seat back
+  readonly log: LogEntry[] = [];
   private setupTurn = 0; // walks the player order forward, then backward
   private lastPlacedSettlement: string | null = null; // setup: the road must touch it
   private resumeStep: TurnStep = 'main'; // where the turn continues after the robber or Road Building
@@ -234,6 +270,10 @@ export class GameState {
     private readonly rollDice: () => [number, number] = rollTwoDice,
   ) {
     this.board = board;
+    // the extension's bigger island comes with a bigger bank and deck
+    const large = board.hexes.length > 19;
+    this.bank = resources(large ? BANK_SIZE_XL : BANK_SIZE);
+    this.devDeck = shuffledDeck(large ? DEV_DECK_XL : DEV_DECK);
     this.graph = buildBoardGraph(board.hexes);
     this.playerOrder = playerInfos.map(p => p.userId);
     for (const p of playerInfos) {
@@ -248,6 +288,12 @@ export class GameState {
       this.ports.set(corners[port.edgeDir], port.type);
       this.ports.set(corners[(port.edgeDir + 1) % 6], port.type);
     }
+    this.record(null, { type: 'start', firstId: this.playerOrder[0] });
+  }
+
+  private record(userId: string | null, event: LogEvent) {
+    this.log.push({ id: (this.log[this.log.length - 1]?.id ?? 0) + 1, at: Date.now(), userId, event });
+    if (this.log.length > LOG_LIMIT) this.log.splice(0, this.log.length - LOG_LIMIT);
   }
 
   get currentPlayerId(): string {
@@ -261,11 +307,96 @@ export class GameState {
   // Single entry point for every player action. Returns an error message, or null on success.
   apply(userId: string, action: GameAction): string | null {
     if (this.phase === 'finished') return 'O jogo já terminou.';
+    const before = {
+      phase: this.phase,
+      step: this.step,
+      production: this.lastProduction,
+      robbery: this.lastRobbery,
+      army: this.largestArmyHolder,
+      road: this.longestRoadHolder,
+      offer: this.tradeOffer && { give: { ...this.tradeOffer.give }, get: { ...this.tradeOffer.get } },
+      hand: { ...this.players.get(userId)?.resources ?? resources(0) },
+    };
     const err = this.dispatch(userId, action);
     // A player wins the moment they have 10 points during their own turn (hidden points included),
     // which also covers starting a turn with points gained during someone else's
     if (!err && this.phase === 'playing') this.checkVictory(this.currentPlayerId);
+    if (!err) this.logAction(userId, action, before);
     return err;
+  }
+
+  // Turns an accepted action, and what it set off, into log lines
+  private logAction(userId: string, action: GameAction, before: {
+    phase: GamePhase; step: TurnStep; production: Production | null; robbery: Robbery | null;
+    army: string | null; road: string | null; offer: { give: Resources; get: Resources } | null; hand: Resources;
+  }) {
+    const setup = before.phase === 'setup';
+    switch (action.type) {
+      case 'build_settlement':
+        this.record(userId, { type: setup ? 'place_settlement' : 'build_settlement', vertexKey: action.vertexKey });
+        break;
+      case 'build_road':
+        this.record(userId, {
+          type: setup ? 'place_road' : before.step === 'road_building' ? 'free_road' : 'build_road', edgeKey: action.edgeKey,
+        });
+        break;
+      case 'build_city': this.record(userId, { type: 'build_city', vertexKey: action.vertexKey }); break;
+      case 'roll_dice': this.record(userId, { type: 'roll', dice: this.dice! }); break;
+      case 'discard': {
+        const count = RESOURCES.reduce((n, r) => n + Math.max(0, before.hand[r] - this.players.get(userId)!.resources[r]), 0);
+        this.record(userId, { type: 'discard', count });
+        break;
+      }
+      case 'move_robber': this.record(userId, { type: 'robber', hexKey: action.hexKey }); break;
+      case 'play_knight': this.record(userId, { type: 'play_card', card: 'knight' }); break;
+      case 'bank_trade': {
+        const amount = before.hand[action.give] - this.players.get(userId)!.resources[action.give];
+        this.record(userId, { type: 'bank_trade', give: action.give, amount, get: action.get });
+        break;
+      }
+      case 'propose_trade':
+        if (this.tradeOffer) this.record(userId, { type: 'offer', give: { ...this.tradeOffer.give }, get: { ...this.tradeOffer.get } });
+        break;
+      case 'respond_trade': this.record(userId, { type: 'offer_answer', accepted: action.accept === true }); break;
+      case 'confirm_trade':
+        if (before.offer) this.record(userId, { type: 'trade', partnerId: action.partnerId, give: before.offer.give, get: before.offer.get });
+        break;
+      case 'cancel_trade': this.record(userId, { type: 'offer_cancel' }); break;
+      case 'buy_dev_card': this.record(userId, { type: 'buy_dev_card' }); break;
+      case 'play_road_building': this.record(userId, { type: 'play_card', card: 'road_building' }); break;
+      case 'play_year_of_plenty':
+        this.record(userId, { type: 'play_card', card: 'year_of_plenty', resources: [...action.resources] });
+        break;
+      case 'play_monopoly': {
+        const taken = this.players.get(userId)!.resources[action.resource] - before.hand[action.resource];
+        this.record(userId, { type: 'play_card', card: 'monopoly', resource: action.resource, taken });
+        break;
+      }
+      case 'end_turn': this.record(userId, { type: 'end_turn' }); break;
+    }
+
+    // what the action set off
+    if (this.lastProduction && this.lastProduction !== before.production) {
+      const totals = new Map<string, { userId: string; resource: ResourceType; amount: number }>();
+      for (const g of this.lastProduction.gains) {
+        const key = `${g.userId}:${g.resource}`;
+        const t = totals.get(key) ?? { userId: g.userId, resource: g.resource, amount: 0 };
+        t.amount += g.amount;
+        totals.set(key, t);
+      }
+      this.record(null, { type: 'produce', gains: [...totals.values()] });
+    }
+    if (this.lastRobbery && this.lastRobbery !== before.robbery) {
+      const r = this.lastRobbery;
+      this.record(r.thiefId, { type: 'steal', victimId: r.victimId, resource: r.resource });
+    }
+    if (this.largestArmyHolder !== before.army) {
+      this.record(this.largestArmyHolder, { type: 'award', award: 'largest_army', lost: before.army });
+    }
+    if (this.longestRoadHolder !== before.road) {
+      this.record(this.longestRoadHolder, { type: 'award', award: 'longest_road', lost: before.road });
+    }
+    if (this.winnerId) this.record(this.winnerId, { type: 'win', points: this.victoryPoints(this.winnerId) });
   }
 
   private dispatch(userId: string, action: GameAction): string | null {
@@ -788,6 +919,7 @@ export class GameState {
   // A player who leaves keeps their seat, cards and buildings; the computer plays it from then on
   leave(userId: string): string | null {
     if (!this.players.has(userId)) return 'Jogador inválido.';
+    if (!this.leftPlayers.has(userId)) this.record(userId, { type: 'left' });
     this.leftPlayers.add(userId);
     this.bots.add(userId);
     return null;
@@ -951,6 +1083,14 @@ export class GameState {
       longestRoadHolder: this.longestRoadHolder,
       bots: [...this.bots],
       legal: isActivePlayer ? this.legalMoves(viewerId) : null,
+      log: this.log.slice(-150).map(entry => {
+        const e = entry.event;
+        // the stolen card is only known to the thief and the victim
+        if (e.type === 'steal' && viewerId !== entry.userId && viewerId !== e.victimId) {
+          return { ...entry, event: { ...e, resource: null } };
+        }
+        return entry;
+      }),
     };
   }
 }

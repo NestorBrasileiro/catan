@@ -95,6 +95,35 @@ export interface TradeOffer {
   responses: Record<string, 'accepted' | 'declined'>;
 }
 
+// One line of the game's log (mirrors backend LogEntry)
+export type LogEvent =
+  | { type: 'place_settlement' | 'build_settlement' | 'build_city'; vertexKey: string }
+  | { type: 'place_road' | 'build_road' | 'free_road'; edgeKey: string }
+  | { type: 'roll'; dice: [number, number] }
+  | { type: 'produce'; gains: { userId: string; resource: ResourceType; amount: number }[] }
+  | { type: 'discard'; count: number }
+  | { type: 'robber'; hexKey: string }
+  | { type: 'steal'; victimId: string; resource: ResourceType | null }
+  | { type: 'bank_trade'; give: ResourceType; amount: number; get: ResourceType }
+  | { type: 'offer'; give: Resources; get: Resources }
+  | { type: 'offer_answer'; accepted: boolean }
+  | { type: 'trade'; partnerId: string; give: Resources; get: Resources }
+  | { type: 'offer_cancel' }
+  | { type: 'buy_dev_card' }
+  | { type: 'play_card'; card: PlayableDevCard; resources?: ResourceType[]; resource?: ResourceType; taken?: number }
+  | { type: 'award'; award: 'largest_army' | 'longest_road'; lost: string | null }
+  | { type: 'end_turn' }
+  | { type: 'win'; points: number }
+  | { type: 'left' }
+  | { type: 'start'; firstId: string };
+
+export interface LogEntry {
+  id: number;
+  at: number;
+  userId: string | null;
+  event: LogEvent;
+}
+
 export interface GameView {
   phase: GamePhase;
   step: TurnStep;
@@ -130,6 +159,7 @@ export interface GameView {
     canBuyDevCard: boolean;
     devCardsToPlay: PlayableDevCard[];
   } | null;
+  log: LogEntry[]; // newest last
 }
 
 export const RESOURCE_ORDER: ResourceType[] = ['wood', 'brick', 'wool', 'wheat', 'ore'];
@@ -226,8 +256,8 @@ export function hexCornerPixel(q: number, r: number, corner: number, size: numbe
   };
 }
 
-// Build the coastline path around all land hexes
-export function buildCoastlinePath(hexes: HexTile[], size: number): string {
+// Corners of the island's outline, in order, at the given hex size
+export function coastlinePoints(hexes: HexTile[], size: number): { x: number; y: number }[] {
   // Collect all hex centers
   const landSet = new Set(hexes.map(h => `${h.q},${h.r}`));
 
@@ -262,9 +292,9 @@ export function buildCoastlinePath(hexes: HexTile[], size: number): string {
   }
 
   // Chain segments into a closed path
-  if (edgeSegments.length === 0) return '';
+  if (edgeSegments.length === 0) return [];
 
-  const eps = 0.5;
+  const eps = size * 0.01;
   const used = new Array(edgeSegments.length).fill(false);
   const path: { x: number; y: number }[] = [];
 
@@ -295,6 +325,13 @@ export function buildCoastlinePath(hexes: HexTile[], size: number): string {
     if (!found) break;
   }
 
+  return path;
+}
+
+// Build the coastline path around all land hexes
+export function buildCoastlinePath(hexes: HexTile[], size: number): string {
+  const path = coastlinePoints(hexes, size);
+  if (path.length === 0) return '';
   return path.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + ' Z';
 }
 

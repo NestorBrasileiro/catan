@@ -1,142 +1,325 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ---------- Shared controls ---------- */
+
+button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, transform 0.1s;
+}
+button:hover:not(:disabled) { filter: brightness(1.06); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  background: var(--glass-inner);
+  border-color: var(--glass-border);
+  color: var(--text);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--glass-hover); filter: none; }
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
 }
 
-body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: #1a1a2e;
-  color: #eee;
-  min-height: 100vh;
+input, select {
+  font: inherit;
+  padding: 0.65rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
 }
-
-.app {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem;
+input:focus, select:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.35);
 }
-
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 0;
-  border-bottom: 1px solid #333;
-  margin-bottom: 1rem;
-}
-
-.app-header h1 {
-  font-size: 1.5rem;
-}
-
-.status { font-size: 0.8rem; }
-
-.card {
-  background: #16213e;
-  border-radius: 12px;
-  padding: 2rem;
-  margin-bottom: 1rem;
-}
-
-/* Lobby screens stay narrow; the game view uses the full width */
-main > .card {
-  max-width: 520px;
-  margin: 1rem auto;
-}
-
-.card h2 {
-  margin-bottom: 1rem;
-  text-align: center;
-}
+input::placeholder { color: var(--text-faint); }
 
 form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-input, select {
-  padding: 0.6rem 1rem;
-  border-radius: 8px;
-  border: 1px solid #444;
-  background: #0f3460;
-  color: #eee;
-  font-size: 1rem;
-}
-
-button {
-  padding: 0.7rem 1.2rem;
-  border-radius: 8px;
-  border: none;
-  background: #e94560;
-  color: white;
-  font-size: 1rem;
-  cursor: pointer;
-  font-weight: 600;
-  transition: opacity 0.2s;
-}
-
-button:hover:not(:disabled) { opacity: 0.85; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-secondary {
-  background: #444;
+  gap: 0.7rem;
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.9rem;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+button.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.link-btn:hover { color: var(--text); }
+
+.color-dot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 10px rgba(0, 0, 0, 0.4);
+}
+
+/* Frosted glass, the surface of every floating panel */
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: var(--glass-strong); }
+}
+
+/* ---------- App shell: the map fills the tab ---------- */
+
+.app-shell {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.backdrop-fallback {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 60%, #1f8bb0 0%, #0e5a80 45%, #0b3f5f 100%);
+}
+
+/* Lobby: brand at the top, the card floating over the turning island */
+.lobby-topbar {
+  position: absolute;
+  top: var(--edge);
+  left: var(--edge);
+  right: var(--edge);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--gap);
+  pointer-events: none;
+  z-index: 10;
+}
+.lobby-topbar > * { pointer-events: auto; }
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.85rem 0.5rem 0.6rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f4b740, #e2702f);
+  color: #1d1606;
+  font-size: 15px;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2);
+}
+.brand small {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.connection::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+.connection.offline::before {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+}
+
+.lobby-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 80px var(--edge) var(--edge) clamp(16px, 6vw, 96px);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.lobby-card {
+  pointer-events: auto;
+  width: min(420px, 100%);
+  padding: 1.6rem;
+  animation: card-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.lobby-card h1 {
+  font-size: 1.9rem;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.4rem;
+}
+.lobby-card h2 {
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 1rem;
+}
+.lobby-card .lead {
+  color: var(--text-muted);
+  margin-bottom: 1.3rem;
+}
+
+.lobby-actions {
+  display: grid;
+  gap: 0.6rem;
+}
+.lobby-actions.two { grid-template-columns: 1fr 1fr; }
+
+.lobby-user {
+  margin-bottom: 1.1rem;
 }
 
 .room-code {
-  font-family: monospace;
-  background: #e94560;
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
-  letter-spacing: 2px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0.15rem 0.55rem;
+  border-radius: 8px;
+  letter-spacing: 3px;
+}
+
+.room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.6rem;
 }
 
 .player-list {
   list-style: none;
-  margin: 1rem 0;
+  margin: 0.4rem 0 1.2rem;
+  display: grid;
+  gap: 0.4rem;
 }
-
 .player-list li {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #222;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--glass-inner);
+  border: 1px solid var(--glass-border);
+}
+.player-list li.empty {
+  border-style: dashed;
+  color: var(--text-faint);
+  background: none;
+}
+.player-list .tag {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
-.color-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  display: inline-block;
-  border: 2px solid #fff;
+.player-list .add-bot {
+  margin-left: auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--text);
 }
+.player-list .seat-remove {
+  width: 26px;
+  height: 26px;
+  margin-left: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.player-list .tag + .seat-remove { margin-left: 0; }
+.room-hint { margin-top: 0.8rem; font-size: 0.8rem; }
 
 .room-actions {
   display: flex;
   gap: 0.5rem;
-  margin-top: 1rem;
 }
-
 .room-actions button { flex: 1; }
 
-.error-banner {
-  background: #c0392b;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  cursor: pointer;
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.4em;
   text-align: center;
+  font-size: 1.3rem;
+  font-weight: 700;
 }
 
-.lobby-user {
-  text-align: center;
+/* Errors float at the top, like a map notification */
+.toast {
+  position: fixed;
+  top: calc(var(--edge) + 56px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: min(520px, calc(100vw - 2 * var(--edge)));
+  padding: 0.65rem 0.9rem;
+  background: rgba(120, 22, 36, 0.82);
+  border-color: rgba(255, 120, 135, 0.4);
+  cursor: pointer;
+  animation: card-in 0.25s ease-out;
+}
+.toast small { color: rgba(255, 255, 255, 0.7); }
+
+@media (max-width: 760px) {
+  .lobby-stage {
+    align-items: flex-end;
+    justify-content: center;
+    padding: 72px var(--edge) var(--edge);
+  }
+  .lobby-card { padding: 1.25rem; }
+  .lobby-card h1 { font-size: 1.55rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-card, .toast { animation: none; }
 }

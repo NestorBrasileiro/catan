@@ -1,7 +1,9 @@
 import { createHash, randomInt } from 'crypto';
 import { getDb } from '../config/database';
 import { nanoid } from 'nanoid';
-import { Room, RoomPlayer, PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, MIN_TURN_TIMER, MAX_TURN_TIMER } from '../models/types';
+import {
+  Room, RoomPlayer, PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, MIN_TURN_TIMER, MAX_TURN_TIMER, BOT_ID_PREFIX, BOT_NAMES, isBotId,
+} from '../models/types';
 import { generateBoard } from '../utils/boardGenerator';
 import { GameState, activeGames } from '../models/gameState';
 import { boardPayload, emitGameState, emitRoomState, onlineUserIds } from './broadcast';
@@ -49,19 +51,51 @@ function findCurrentRoom(userId: string): Room | undefined {
     || (activeGames.has(r.id) && !activeGames.get(r.id)!.leftPlayers.has(userId)));
 }
 
-// Frees the seat; the host role passes to whoever joined first, and an empty room is deleted
+// Frees the seat; the host role passes to the person who joined first, and a room with no people
+// left (bots don't count) is deleted
 function removeFromWaitingRoom(io: GameServer, roomId: string, userId: string) {
   const db = getDb();
   db.prepare('DELETE FROM room_players WHERE room_id = ? AND user_id = ?').run(roomId, userId);
   const remaining = db.prepare('SELECT user_id FROM room_players WHERE room_id = ? ORDER BY joined_at, rowid')
     .all(roomId) as { user_id: string }[];
-  if (remaining.length === 0) {
+  const people = remaining.filter(p => !isBotId(p.user_id));
+  if (people.length === 0) {
+    db.prepare('DELETE FROM room_players WHERE room_id = ?').run(roomId);
     db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
     clearChat(roomId);
     return;
   }
-  db.prepare('UPDATE rooms SET host_id = ? WHERE id = ? AND host_id = ?').run(remaining[0].user_id, roomId, userId);
+  db.prepare('UPDATE rooms SET host_id = ? WHERE id = ? AND host_id = ?').run(people[0].user_id, roomId, userId);
   emitRoomState(io, roomId);
+}
+
+// The waiting room the host is in, or why they can't change its seats
+function hostsWaitingRoom(userId: string | undefined, roomId: string | undefined): Room | string {
+  if (!userId || !roomId) return 'Não está em nenhuma sala.';
+  const room = getDb().prepare('SELECT * FROM rooms WHERE id = ?').get(roomId) as Room | undefined;
+  if (!room) return 'Sala não encontrada.';
+  if (room.host_id !== userId) return 'Apenas o anfitrião pode mudar os lugares.';
+  if (room.status !== 'waiting') return 'Jogo já iniciado.';
+  return room;
+}
+
+// Gives an empty seat to the computer: a user with no session token, a name nobody in the room has,
+// and the next free color
+function addBotSeat(roomId: string, maxPlayers: number): string | null {
+  const db = getDb();
+  const players = db.prepare('SELECT * FROM room_players WHERE room_id = ?').all(roomId) as RoomPlayer[];
+  if (players.length >= maxPlayers) return 'Sala cheia.';
+
+  const usedColors = players.map(p => p.color);
+  const color = PLAYER_COLORS.find(c => !usedColors.includes(c))!;
+  const taken = new Set((db.prepare(`
+    SELECT u.username FROM room_players rp JOIN users u ON u.id = rp.user_id WHERE rp.room_id = ?
+  `).all(roomId) as { username: string }[]).map(u => u.username));
+  const name = BOT_NAMES.find(n => !taken.has(n)) ?? `Bot ${players.length + 1}`;
+  const id = BOT_ID_PREFIX + nanoid(10);
+  db.prepare('INSERT INTO users (id, username, token_hash) VALUES (?, ?, NULL)').run(id, name);
+  db.prepare('INSERT INTO room_players (room_id, user_id, color) VALUES (?, ?, ?)').run(roomId, id, color);
+  return null;
 }
 
 function cancelPendingRemoval(userId: string) {
@@ -118,7 +152,7 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
   });
 
   // Create room
-  onEvent<{ maxPlayers: number; turnTimer: number }>(socket, 'create_room', (data, reply) => {
+  onEvent<{ maxPlayers: number; turnTimer: number; bots?: number }>(socket, 'create_room', (data, reply) => {
     const { userId } = socket.data;
     if (!userId) return reply({ error: 'Registe-se primeiro.' });
     if (socket.data.roomId) return reply({ error: 'Você já está numa sala.' });
@@ -131,6 +165,8 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     if (!isIntInRange(turnTimer, MIN_TURN_TIMER, MAX_TURN_TIMER)) {
       return reply({ error: `Tempo por turno deve ser entre ${MIN_TURN_TIMER} e ${MAX_TURN_TIMER} segundos.` });
     }
+    const bots = data.bots ?? 0;
+    if (!isIntInRange(bots, 0, maxPlayers - 1)) return reply({ error: 'Número de bots inválido.' });
 
     const roomId = nanoid(16);
     const code = generateRoomCode();
@@ -139,6 +175,7 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
       .run(roomId, code, userId, maxPlayers, turnTimer);
     db.prepare('INSERT INTO room_players (room_id, user_id, color) VALUES (?, ?, ?)')
       .run(roomId, userId, PLAYER_COLORS[0]);
+    for (let i = 0; i < bots; i++) addBotSeat(roomId, maxPlayers);
 
     socket.join(roomId);
     socket.data.roomId = roomId;
@@ -203,6 +240,29 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     reply({ ok: true });
   });
 
+  // The host fills an empty seat with the computer
+  onEvent(socket, 'add_bot', (_data, reply) => {
+    const room = hostsWaitingRoom(socket.data.userId, socket.data.roomId);
+    if (typeof room === 'string') return reply({ error: room });
+
+    const err = addBotSeat(room.id, room.max_players);
+    if (err) return reply({ error: err });
+    reply({ ok: true });
+    emitRoomState(io, room.id);
+  });
+
+  // ...and can take it back
+  onEvent<{ userId: string }>(socket, 'remove_bot', (data, reply) => {
+    const room = hostsWaitingRoom(socket.data.userId, socket.data.roomId);
+    if (typeof room === 'string') return reply({ error: room });
+    if (typeof data.userId !== 'string' || !isBotId(data.userId)) return reply({ error: 'Esse lugar não é de um bot.' });
+
+    const seat = db.prepare('SELECT 1 FROM room_players WHERE room_id = ? AND user_id = ?').get(room.id, data.userId);
+    if (!seat) return reply({ error: 'Bot não está nesta sala.' });
+    removeFromWaitingRoom(io, room.id, data.userId);
+    reply({ ok: true });
+  });
+
   // Start game
   onEvent(socket, 'start_game', (_data, reply) => {
     const { userId, roomId } = socket.data;
@@ -220,14 +280,18 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
 
     // Official rules: the starting player is drawn at random
     const playerInfos = shuffle(players).map(p => ({ userId: p.user_id, color: p.color! }));
-    const game = new GameState(generateBoard(), playerInfos);
+    // the island's size follows the seats the room was made for, so 5-6 player rooms get the extension
+    const game = new GameState(generateBoard(Math.max(room.max_players, players.length)), playerInfos);
     activeGames.set(roomId, game);
+    // seats the host gave to the computer are played by it from the first move
+    for (const p of players) if (isBotId(p.user_id)) game.leave(p.user_id);
 
     reply({ ok: true });
     emitRoomState(io, roomId);
     io.to(roomId).emit('game_started', { roomId });
     io.to(roomId).emit('board_generated', boardPayload(game));
     emitGameState(io, roomId);
+    scheduleBots(io, roomId);
   });
 
   // A dropped connection keeps the seat for a short grace period. After it, a waiting room frees

@@ -3,21 +3,25 @@ import { RESOURCE_ORDER, cardsText, type GameAction, type Resources, type TradeO
 interface IncomingOfferProps {
   offer: TradeOffer;
   fromName: string;
+  fromColor: string;
   myId: string;
   hand: Resources;
   act: (action: GameAction) => Promise<boolean>;
 }
 
 // Shown to the other players while the current player has an offer on the table
-export default function IncomingOffer({ offer, fromName, myId, hand, act }: IncomingOfferProps) {
+export default function IncomingOffer({ offer, fromName, fromColor, myId, hand, act }: IncomingOfferProps) {
   const response = offer.responses[myId];
   const canPay = RESOURCE_ORDER.every(r => hand[r] >= offer.get[r]);
 
   return (
-    <section className="panel panel-alert">
-      <h3>Proposta de {fromName}</h3>
-      <p>Dá <strong>{cardsText(offer.give)}</strong></p>
-      <p>Pede <strong>{cardsText(offer.get)}</strong></p>
+    <section className="panel panel-alert incoming-offer" aria-label={`Proposta de ${fromName}`}>
+      <h3><span className="color-dot" style={{ backgroundColor: fromColor }} /> Proposta de {fromName}</h3>
+      <div className="offer-swap">
+        <div><small>Você recebe</small><strong>{cardsText(offer.give)}</strong></div>
+        <span className="offer-arrow" aria-hidden>⇄</span>
+        <div><small>Você dá</small><strong>{cardsText(offer.get)}</strong></div>
+      </div>
       {response === 'accepted' && <p className="muted">Você aceitou. Aguardando {fromName} confirmar.</p>}
       {response === 'declined' && <p className="muted">Você recusou.</p>}
       {!canPay && <p className="muted">Você não tem as cartas pedidas.</p>}
