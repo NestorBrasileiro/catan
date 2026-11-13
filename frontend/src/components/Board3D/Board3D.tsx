@@ -92,7 +92,7 @@ export default function Board3D({ board, game, rolling = false, backdrop = false
         {!backdrop && <HexProjector />}
 
         <Atmosphere time={settings.timeOfDay} profile={profile} clouds={layers.clouds} />
-        <Ocean hexes={board.hexes} signature={signature} reflections={profile.reflections} />
+        <Ocean hexes={board.hexes} signature={signature} reflections={profile.reflections} night={settings.timeOfDay === 'night'} />
         <Beach hexes={board.hexes} signature={signature} />
 
         {board.hexes.map(hex => (

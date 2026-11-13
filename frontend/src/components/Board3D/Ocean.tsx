@@ -123,11 +123,12 @@ interface OceanProps {
   hexes: HexTile[];
   signature: string; // changes only when the island changes
   reflections: boolean;
+  night: boolean;
 }
 
 // The sea: colored by depth around the coast, rippling normals that catch the sky and the sun, surf at
 // the shore and, on Ultra, real mirror reflections of the island and the boats
-export default function Ocean({ hexes, signature, reflections }: OceanProps) {
+export default function Ocean({ hexes, signature, reflections, night }: OceanProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const shore = useMemo(() => centered(shoreTexture(hexes)), [signature]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,7 +173,7 @@ export default function Ocean({ hexes, signature, reflections }: OceanProps) {
       <mesh rotation-x={-Math.PI / 2} position-y={0.008} renderOrder={1}>
         <planeGeometry args={[SHORE_EXTENT, SHORE_EXTENT]} />
         <meshBasicMaterial ref={surfMaterial} map={surf} transparent depthWrite={false} opacity={0.6} toneMapped={false}
-          color="#dff4f6" />
+          color={night ? '#2c3f5c' : '#dff4f6'} />
       </mesh>
     </>
   );

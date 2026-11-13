@@ -67,29 +67,32 @@ function Clouds({ night }: { night: boolean }) {
   const material = cloudMaterial();
   useEffect(() => tintClouds(night), [night]);
 
+  // They circle the island far outside the camera's reach, so none ever drifts in front of the board
   const puffs = useMemo(() => {
     const random = seededRandom(12);
-    return Array.from({ length: 26 }, () => {
-      const angle = random() * Math.PI * 2;
-      const radius = 14 + random() * 45;
-      return {
-        x: Math.cos(angle) * radius, z: Math.sin(angle) * radius,
-        y: 6 + random() * 9, scale: 9 + random() * 14, speed: 0.15 + random() * 0.25,
-      };
-    });
+    return Array.from({ length: 26 }, () => ({
+      angle: random() * Math.PI * 2,
+      radius: 42 + random() * 50,
+      y: 9 + random() * 14,
+      scale: 12 + random() * 16,
+      speed: 0.004 + random() * 0.006,
+    }));
   }, []);
 
   useFrame((_, delta) => {
     group.current?.children.forEach((sprite, i) => {
-      sprite.position.x += delta * puffs[i].speed;
-      if (sprite.position.x > 70) sprite.position.x = -70;
+      const p = puffs[i];
+      const angle = p.angle + sprite.userData.travel;
+      sprite.userData.travel += delta * p.speed;
+      sprite.position.set(Math.cos(angle) * p.radius, p.y, Math.sin(angle) * p.radius);
     });
   });
 
   return (
     <group ref={group}>
       {puffs.map((p, i) => (
-        <sprite key={i} material={material} position={[p.x, p.y, p.z]} scale={[p.scale, p.scale * 0.55, 1]} />
+        <sprite key={i} material={material} userData={{ travel: 0 }}
+          position={[Math.cos(p.angle) * p.radius, p.y, Math.sin(p.angle) * p.radius]} scale={[p.scale, p.scale * 0.55, 1]} />
       ))}
     </group>
   );
