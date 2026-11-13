@@ -1,6 +1,6 @@
 import { getDb } from '../config/database';
 import { GameState, activeGames } from '../models/gameState';
-import { Room } from '../models/types';
+import { Room, isBotId } from '../models/types';
 import { GameServer } from './socket';
 
 // Players with at least one open connection in the room
@@ -24,7 +24,10 @@ export function emitRoomState(io: GameServer, roomId: string) {
     FROM room_players rp JOIN users u ON rp.user_id = u.id
     WHERE rp.room_id = ?
     ORDER BY rp.joined_at, rp.rowid
-  `).all(roomId) as { user_id: string }[]).map(p => ({ ...p, online: online.has(p.user_id) }));
+  `).all(roomId) as { user_id: string }[]).map(p => {
+    const bot = isBotId(p.user_id);
+    return { ...p, bot, online: bot || online.has(p.user_id) }; // the computer is always there
+  });
 
   io.to(roomId).emit('room_state_updated', {
     id: room.id,

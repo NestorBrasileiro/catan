@@ -261,6 +261,22 @@ button.link-btn:hover { color: var(--text); }
   color: var(--text-muted);
 }
 
+.player-list .add-bot {
+  margin-left: auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.player-list .seat-remove {
+  width: 26px;
+  height: 26px;
+  margin-left: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.player-list .tag + .seat-remove { margin-left: 0; }
+.room-hint { margin-top: 0.8rem; font-size: 0.8rem; }
+
 .room-actions {
   display: flex;
   gap: 0.5rem;

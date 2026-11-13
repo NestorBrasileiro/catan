@@ -2,7 +2,7 @@ import { useGame } from '../../contexts/useGame';
 
 // The waiting room; once the game starts the app swaps to the game map
 export default function RoomView() {
-  const { room, user, leaveRoom, startGame } = useGame();
+  const { room, user, leaveRoom, startGame, addBot, removeBot } = useGame();
 
   if (!room) return null;
 
@@ -23,12 +23,22 @@ export default function RoomView() {
             <span>{p.username}{p.user_id === user?.id && <span className="muted"> (você)</span>}</span>
             <span className="tag">
               {p.user_id === room.hostId && '👑 anfitrião'}
+              {p.bot && '🤖 bot'}
               {!p.online && ' · offline'}
             </span>
+            {p.bot && isHost && (
+              <button className="icon-btn seat-remove" onClick={() => removeBot(p.user_id).catch(() => {})}
+                aria-label={`Tirar ${p.username}`} title="Tirar o bot">✕</button>
+            )}
           </li>
         ))}
         {Array.from({ length: empty }, (_, i) => (
-          <li key={`empty-${i}`} className="empty">Aguardando jogador…</li>
+          <li key={`empty-${i}`} className="empty">
+            Aguardando jogador…
+            {isHost && i === 0 && (
+              <button className="btn-secondary add-bot" onClick={() => addBot().catch(() => {})}>+ Adicionar bot</button>
+            )}
+          </li>
         ))}
       </ul>
       <div className="room-actions">
@@ -39,7 +49,9 @@ export default function RoomView() {
           </button>
         )}
       </div>
-      {!isHost && <p className="muted" style={{ marginTop: '0.8rem' }}>O anfitrião começa a partida quando todos entrarem.</p>}
+      {isHost
+        ? <p className="muted room-hint">Lugares vazios podem ser preenchidos por bots, que jogam sozinhos do começo ao fim.</p>
+        : <p className="muted room-hint">O anfitrião começa a partida quando todos entrarem.</p>}
     </div>
   );
 }
