@@ -46,7 +46,7 @@ function put(list: Placement[], x: number, y: number, z: number, sx: number, sy:
   list.push({ matrix: new Matrix4().compose(new Vector3(x, y, z), q.clone(), new Vector3(sx, sy, sz)), color });
 }
 
-function sceneryFor(hex: HexTile, density: number, out: Placements) {
+function sceneryFor(hex: HexTile, density: number, out: Placements, sheep: boolean) {
   const seed = hexSeed(hex);
   const [cx, , cz] = hexPosition(hex.q, hex.r);
   const ground = (lx: number, lz: number) => TILE_TOP + terrainHeight(hex.terrain as TerrainType, seed, lx, lz);
@@ -102,7 +102,8 @@ function sceneryFor(hex: HexTile, density: number, out: Placements) {
       break;
     }
     case 'pasture':
-      for (const p of scatter(seed + 7, 6, 0.38, 0.8, 0.14)) {
+      // when the villagers layer is on, the sheep walk around with the shepherd instead
+      for (const p of sheep ? scatter(seed + 7, 6, 0.38, 0.8, 0.14) : []) {
         const y = ground(p.x, p.z) + 0.05;
         const turn = p.r * Math.PI * 2;
         const hx = Math.cos(turn) * 0.065;
@@ -155,12 +156,12 @@ function InstancedPart({ name, items }: { name: PartName; items: Placement[] }) 
   return <instancedMesh key={items.length} ref={ref} args={[geometry, material, items.length]} castShadow receiveShadow />;
 }
 
-export default function Scenery({ hexes, density }: { hexes: HexTile[]; density: number }) {
+export default function Scenery({ hexes, density, sheep = true }: { hexes: HexTile[]; density: number; sheep?: boolean }) {
   const placements = useMemo(() => {
     const out = Object.fromEntries(Object.keys(PARTS).map(k => [k, []])) as unknown as Placements;
-    hexes.forEach(hex => sceneryFor(hex, density, out));
+    hexes.forEach(hex => sceneryFor(hex, density, out, sheep));
     return out;
-  }, [hexes, density]);
+  }, [hexes, density, sheep]);
 
   return (
     <>

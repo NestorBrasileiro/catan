@@ -11,6 +11,7 @@ export interface MapLayers {
   numbers: boolean;   // number tokens on the hexes
   ports: boolean;     // boats and port signs
   scenery: boolean;   // trees, sheep, wheat, rocks…
+  villagers: boolean; // tiny farmers, miners, lumberjacks and animals at work
   heatmap: boolean;   // how much each hex produces, by the odds of its number
   labels: boolean;    // floating resource labels over each hex
   clouds: boolean;    // clouds drifting over the island
@@ -80,7 +81,8 @@ export const LAYER_LABELS: Record<keyof MapLayers, { label: string; hint: string
   heatmap: { label: 'Mapa de produção', hint: 'Quanto cada hexágono rende, pela chance do número' },
   labels: { label: 'Rótulos', hint: 'Nome do recurso sobre cada hexágono' },
   ports: { label: 'Portos', hint: 'Barcos e taxas de troca' },
-  scenery: { label: 'Vegetação e cenário', hint: 'Árvores, ovelhas, trigo e rochas' },
+  scenery: { label: 'Vegetação', hint: 'Árvores, trigo, rochas e arbustos' },
+  villagers: { label: 'Vida no campo', hint: 'Fazendeiros, mineiros, lenhadores, tratores e animais trabalhando' },
   clouds: { label: 'Nuvens', hint: 'Nuvens passando sobre a ilha' },
 };
 
@@ -92,7 +94,7 @@ const DEFAULTS: GraphicsSettings = {
   view: '3d',
   cinematic: false,
   showFps: false,
-  layers: { numbers: true, ports: true, scenery: true, heatmap: false, labels: false, clouds: true },
+  layers: { numbers: true, ports: true, scenery: true, villagers: true, heatmap: false, labels: false, clouds: true },
 };
 
 function load(): GraphicsSettings {

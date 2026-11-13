@@ -220,7 +220,8 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
 
     // Official rules: the starting player is drawn at random
     const playerInfos = shuffle(players).map(p => ({ userId: p.user_id, color: p.color! }));
-    const game = new GameState(generateBoard(), playerInfos);
+    // the island's size follows the seats the room was made for, so 5-6 player rooms get the extension
+    const game = new GameState(generateBoard(Math.max(room.max_players, players.length)), playerInfos);
     activeGames.set(roomId, game);
 
     reply({ ok: true });

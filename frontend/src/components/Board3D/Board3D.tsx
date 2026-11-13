@@ -18,21 +18,23 @@ import { Building, Road, Robber } from './Pieces3D';
 import PortBoat from './Ports3D';
 import Scenery from './Scenery3D';
 import Tile from './Terrain3D';
-import { TILE_TOP, hexKeyPosition } from './layout';
+import Villagers from './Villagers3D';
+import { TILE_TOP, hexKeyPosition, hexPosition, type Vec3 } from './layout';
 import './Board3D.css';
 
 // Lets the page know where a hex is on screen, for the cards that fly out of it
-function HexProjector() {
+function HexProjector({ center }: { center: [number, number] }) {
   const { camera, gl } = useThree();
   useEffect(() => {
     const point = new Vector3();
     setHexProjector(hexKey => {
-      point.set(...hexKeyPosition(hexKey, TILE_TOP + 0.3)).project(camera);
+      const [x, y, z] = hexKeyPosition(hexKey, TILE_TOP + 0.3);
+      point.set(x - center[0], y, z - center[1]).project(camera);
       const rect = gl.domElement.getBoundingClientRect();
       return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
     });
     return () => setHexProjector(null);
-  }, [camera, gl]);
+  }, [camera, gl, center]);
   return null;
 }
 
@@ -77,6 +79,21 @@ export default function Board3D({ board, game, rolling = false, backdrop = false
   const colorOf = (userId: string) => game?.players[userId]?.color ?? '#888';
   const robberOnToken = game ? board.hexes.some(h => `${h.q},${h.r}` === game.robberHex && h.number) : false;
 
+  // The 5-6 player island isn't centered on hex (0, 0): the world shifts so its middle is at the origin
+  const { center, extent } = useMemo(() => {
+    const points = board.hexes.map(h => hexPosition(h.q, h.r));
+    const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length;
+    const cz = points.reduce((sum, p) => sum + p[2], 0) / points.length;
+    const reach = Math.max(...points.map(p => Math.hypot(p[0] - cx, p[2] - cz)));
+    return { center: [cx, cz] as [number, number], extent: reach + 1.15 };
+  }, [board.hexes]);
+  const dicePosition: Vec3 = [center[0] - extent * 0.7, 0.06, center[1] + extent * 0.95];
+  const production = useMemo(() => game?.lastProduction
+    ? { id: game.lastProduction.id, hexKeys: [...new Set(game.lastProduction.gains.map(g => g.hexKey))] }
+    : null,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [game?.lastProduction?.id]);
+
   return (
     <div className={`board3d ${backdrop ? 'backdrop' : ''}`}>
       <Canvas
@@ -87,44 +104,50 @@ export default function Board3D({ board, game, rolling = false, backdrop = false
       >
         {auto.monitor}
         {settings.quality === 'auto' && <AdaptiveDpr pixelated={false} />}
-        <CameraRig interactive={!backdrop} autoRotate={backdrop} intro={!backdrop} padding={padding} />
+        <CameraRig interactive={!backdrop} autoRotate={backdrop} intro={!backdrop} padding={padding} extent={extent} />
         {settings.showFps && <FpsMeter />}
-        {!backdrop && <HexProjector />}
+        {!backdrop && <HexProjector center={center} />}
 
         <Atmosphere time={settings.timeOfDay} profile={profile} clouds={layers.clouds} />
-        <Ocean hexes={board.hexes} signature={signature} reflections={profile.reflections} night={settings.timeOfDay === 'night'} />
-        <Beach hexes={board.hexes} signature={signature} />
+        <group position={[-center[0], 0, -center[1]]}>
+          <Ocean hexes={board.hexes} signature={signature} reflections={profile.reflections} night={settings.timeOfDay === 'night'} />
+          <Beach hexes={board.hexes} signature={signature} />
 
-        {board.hexes.map(hex => (
-          <Tile key={`${hex.q},${hex.r}`} hex={hex} detail={profile.terrainDetail} showNumber={layers.numbers} />
-        ))}
-        {layers.scenery && <Scenery hexes={board.hexes} density={profile.sceneryDensity} />}
-        {layers.ports && board.ports.map((port, i) => <PortBoat key={i} port={port} />)}
+          {board.hexes.map(hex => (
+            <Tile key={`${hex.q},${hex.r}`} hex={hex} detail={profile.terrainDetail} showNumber={layers.numbers} />
+          ))}
+          {layers.scenery && <Scenery hexes={board.hexes} density={profile.sceneryDensity} sheep={!layers.villagers} />}
+          {layers.villagers && (
+            <Villagers hexes={board.hexes} crew={profile.sceneryDensity >= 0.6 ? 1 : 0}
+              robberHex={game?.robberHex ?? ''} production={production} />
+          )}
+          {layers.ports && board.ports.map((port, i) => <PortBoat key={i} port={port} />)}
 
-        {game && (
-          <>
-            {Object.entries(game.roads).map(([edgeKey, owner]) => (
-              <Road key={edgeKey} edgeKey={edgeKey} color={colorOf(owner)} />
-            ))}
-            {Object.entries(game.buildings).map(([vertexKey, building]) => (
-              <Building key={`${vertexKey}-${building.type}`} vertexKey={vertexKey} type={building.type} color={colorOf(building.owner)} />
-            ))}
-            <Robber hexKey={game.robberHex} onToken={robberOnToken && layers.numbers} />
-            <Dice3D dice={game.dice} rolling={rolling} />
-          </>
-        )}
-        {layers.heatmap && <Heatmap hexes={board.hexes} robberHex={game?.robberHex ?? ''} />}
-        {layers.labels && <Labels hexes={board.hexes} />}
-        {!backdrop && spots.onVertexClick && (
-          <Spots
-            highlightVertices={spots.highlightVertices ?? []}
-            highlightEdges={spots.highlightEdges ?? []}
-            highlightHexes={spots.highlightHexes ?? []}
-            onVertexClick={spots.onVertexClick}
-            onEdgeClick={spots.onEdgeClick!}
-            onHexClick={spots.onHexClick!}
-          />
-        )}
+          {game && (
+            <>
+              {Object.entries(game.roads).map(([edgeKey, owner]) => (
+                <Road key={edgeKey} edgeKey={edgeKey} color={colorOf(owner)} />
+              ))}
+              {Object.entries(game.buildings).map(([vertexKey, building]) => (
+                <Building key={`${vertexKey}-${building.type}`} vertexKey={vertexKey} type={building.type} color={colorOf(building.owner)} />
+              ))}
+              <Robber hexKey={game.robberHex} onToken={robberOnToken && layers.numbers} />
+              <Dice3D dice={game.dice} rolling={rolling} position={dicePosition} />
+            </>
+          )}
+          {layers.heatmap && <Heatmap hexes={board.hexes} robberHex={game?.robberHex ?? ''} />}
+          {layers.labels && <Labels hexes={board.hexes} />}
+          {!backdrop && spots.onVertexClick && (
+            <Spots
+              highlightVertices={spots.highlightVertices ?? []}
+              highlightEdges={spots.highlightEdges ?? []}
+              highlightHexes={spots.highlightHexes ?? []}
+              onVertexClick={spots.onVertexClick}
+              onEdgeClick={spots.onEdgeClick!}
+              onHexClick={spots.onHexClick!}
+            />
+          )}
+        </group>
 
         {profile.postprocessing && (
           <Effects preset={preset} profile={profile} time={settings.timeOfDay} cinematic={settings.cinematic} />

@@ -51,9 +51,13 @@ export default function LobbyMenu() {
           <label>
             Jogadores
             <select value={maxPlayers} onChange={(e) => setMaxPlayers(Number(e.target.value))}>
-              {[2, 3, 4].map(n => <option key={n} value={n}>{n} jogadores</option>)}
+              {[2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} jogadores{n > 4 ? ' · ilha grande' : ''}</option>)}
             </select>
           </label>
+          {maxPlayers > 4 && (
+            <p className="muted">Com 5 ou 6 jogadores a partida usa a ilha da expansão: 30 hexágonos, 11 portos,
+              banco com 24 cartas de cada recurso e 34 cartas de desenvolvimento.</p>
+          )}
           <label>
             Tempo por turno (segundos)
             <input type="number" value={turnTimer} onChange={(e) => setTurnTimer(Number(e.target.value))} min={30} max={600} />

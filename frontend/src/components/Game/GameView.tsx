@@ -27,9 +27,8 @@ const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
 const BUILD_LABELS: Record<BuildKind, string> = { road: 'Estrada', settlement: 'Aldeia', city: 'Cidade' };
 const BUILD_ICONS: Record<BuildKind | 'devCard', string> = { road: '🛤️', settlement: '🏠', city: '🏰', devCard: '📜' };
 
-type Tab = 'trade' | 'cards' | 'chat' | 'stats';
+type Tab = 'cards' | 'chat' | 'stats';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'trade', label: 'Comércio' },
   { id: 'cards', label: 'Cartas' },
   { id: 'chat', label: 'Chat' },
   { id: 'stats', label: 'Dados' },
@@ -58,6 +57,7 @@ export default function GameView() {
   const [tab, setTab] = useState<Tab>('chat');
   const [drawerOpen, setDrawerOpen] = useState(() => !isPhone());
   const [seenChat, setSeenChat] = useState(chat.length);
+  const [tradeOpen, setTradeOpen] = useState(false);
   const padding = useHudPadding('game', drawerOpen);
 
   const { view: game, rolling } = useRollReveal(gameState);
@@ -98,6 +98,8 @@ export default function GameView() {
   };
   const spots: Record<BuildKind, string[]> = { road: legal.roads, settlement: legal.settlements, city: legal.cities };
   const canTrade = isMyTurn && game.step === 'main' && !!legal.bankRatios && !!me.resources;
+  // an offer of ours on the table keeps the trade panel open until it's closed or cancelled
+  const showTrade = canTrade && (tradeOpen || !!game.tradeOffer);
   const unread = Math.max(0, chat.length - seenChat);
 
   // During setup the step decides what to place; afterwards the player picks what to build
@@ -260,10 +262,6 @@ export default function GameView() {
             <DiscardPanel key={myDiscard} hand={me.resources} owed={myDiscard}
               onConfirm={resources => act({ type: 'discard', resources })} />
           )}
-          {game.tradeOffer && !isMyTurn && me.resources && (
-            <IncomingOffer offer={game.tradeOffer} fromName={nameOf(game.currentPlayerId)}
-              myId={user.id} hand={me.resources} act={act} />
-          )}
           {legal.victims.length > 0 && (
             <section className="panel panel-alert">
               <h3>Roubar de quem?</h3>
@@ -288,21 +286,12 @@ export default function GameView() {
                 onClick={() => setTab(t.id)}>
                 {t.label}
                 {t.id === 'chat' && unread > 0 && <span className="badge">{unread}</span>}
-                {t.id === 'trade' && canTrade && tab !== 'trade' && <span className="badge-dot" />}
                 {t.id === 'cards' && me.devCardCount > 0 && <span className="badge soft">{me.devCardCount}</span>}
               </button>
             ))}
             <button className="icon-btn drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fechar painel"><CloseIcon /></button>
           </div>
           <div className="drawer-body">
-            <div role="tabpanel" hidden={tab !== 'trade'}>
-              {canTrade ? (
-                <TradePanel hand={me.resources!} bank={game.bank} bankRatios={legal.bankRatios!} offer={game.tradeOffer}
-                  opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
-              ) : (
-                <p className="empty-state">O comércio abre na sua vez, depois de rolar os dados: com o banco (4:1), pelos portos que você ocupa (3:1 e 2:1) e com os outros jogadores.</p>
-              )}
-            </div>
             <div role="tabpanel" hidden={tab !== 'cards'}>
               {me.devCards && me.newDevCards && me.devCardCount > 0 ? (
                 <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
@@ -336,58 +325,78 @@ export default function GameView() {
           )}
         </aside>
 
-        {/* ---- Dock: hand and actions (bottom center) ---- */}
-        <div className="hud-dock glass">
-          {me.resources && (
-            <div className="hand" aria-label="Sua mão">
-              {RESOURCE_ORDER.map(r => (
-                <div key={r} className={`res-card res-${r} ${me.resources![r] === 0 ? 'empty' : ''}`}
-                  title={RESOURCE_INFO[r].label} data-hand={r}>
-                  <span className="res-emoji" aria-hidden>{RESOURCE_INFO[r].emoji}</span>
-                  <strong aria-label={`${me.resources![r]} ${RESOURCE_INFO[r].label}`}>{me.resources![r]}</strong>
-                </div>
-              ))}
+        {/* ---- Bottom center: trade floating over the dock, then the dock with the hand and actions ---- */}
+        <div className="hud-bottom">
+          {showTrade && (
+            <div className="trade-float">
+              <TradePanel hand={me.resources!} bank={game.bank} bankRatios={legal.bankRatios!} offer={game.tradeOffer}
+                opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act}
+                onClose={() => setTradeOpen(false)} />
             </div>
           )}
-
-          {isMyTurn && game.step === 'roll' && (
-            <div className="dock-actions">
-              {legal.devCardsToPlay.length > 0 && (
-                <button className="btn-secondary" onClick={() => openTab('cards')}>📜 Jogar carta</button>
-              )}
-              <button className="primary-action" disabled={rolling} onClick={() => act({ type: 'roll_dice' })}>
-                🎲 {rolling ? 'Rolando…' : 'Rolar dados'}
-              </button>
+          {game.tradeOffer && !isMyTurn && me.resources && (
+            <div className="trade-float">
+              <IncomingOffer offer={game.tradeOffer} fromName={nameOf(game.currentPlayerId)}
+                fromColor={game.players[game.currentPlayerId].color} myId={user.id} hand={me.resources} act={act} />
             </div>
           )}
+          <div className="hud-dock glass">
+            {me.resources && (
+              <div className="hand" aria-label="Sua mão">
+                {RESOURCE_ORDER.map(r => (
+                  <div key={r} className={`res-card res-${r} ${me.resources![r] === 0 ? 'empty' : ''}`}
+                    title={RESOURCE_INFO[r].label} data-hand={r}>
+                    <span className="res-emoji" aria-hidden>{RESOURCE_INFO[r].emoji}</span>
+                    <strong aria-label={`${me.resources![r]} ${RESOURCE_INFO[r].label}`}>{me.resources![r]}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
 
-          {isMyTurn && game.step === 'main' && (
-            <div className="dock-actions">
-              {BUILD_KINDS.map(kind => (
-                <button key={kind}
-                  className={`build-btn ${buildMode === kind ? 'active' : ''}`}
-                  aria-pressed={buildMode === kind}
-                  disabled={spots[kind].length === 0}
-                  title={spots[kind].length === 0
-                    ? 'Sem recursos, peças ou lugar disponível'
-                    : `${BUILD_LABELS[kind]} · ${me.piecesLeft[kind]} peças restantes`}
-                  onClick={() => setBuildMode(buildMode === kind ? null : kind)}>
-                  <span className="build-icon" aria-hidden>{BUILD_ICONS[kind]}</span>
-                  <span className="build-label">{BUILD_LABELS[kind]}</span>
-                  <Cost kind={kind} />
-                  <span className="pieces-left" aria-hidden>{me.piecesLeft[kind]}</span>
+            {isMyTurn && game.step === 'roll' && (
+              <div className="dock-actions">
+                {legal.devCardsToPlay.length > 0 && (
+                  <button className="btn-secondary" onClick={() => openTab('cards')}>📜 Jogar carta</button>
+                )}
+                <button className="primary-action" disabled={rolling} onClick={() => act({ type: 'roll_dice' })}>
+                  🎲 {rolling ? 'Rolando…' : 'Rolar dados'}
                 </button>
-              ))}
-              <button className="build-btn" disabled={!legal.canBuyDevCard}
-                title={legal.canBuyDevCard ? 'Comprar carta de desenvolvimento' : 'Sem recursos ou baralho vazio'}
-                onClick={() => act({ type: 'buy_dev_card' })}>
-                <span className="build-icon" aria-hidden>{BUILD_ICONS.devCard}</span>
-                <span className="build-label">Carta</span>
-                <Cost kind="devCard" />
-              </button>
-              <button className="primary-action" onClick={() => act({ type: 'end_turn' })}>Passar a vez ➜</button>
-            </div>
-          )}
+              </div>
+            )}
+
+            {isMyTurn && game.step === 'main' && (
+              <div className="dock-actions">
+                {BUILD_KINDS.map(kind => (
+                  <button key={kind}
+                    className={`build-btn ${buildMode === kind ? 'active' : ''}`}
+                    aria-pressed={buildMode === kind}
+                    disabled={spots[kind].length === 0}
+                    title={spots[kind].length === 0
+                      ? 'Sem recursos, peças ou lugar disponível'
+                      : `${BUILD_LABELS[kind]} · ${me.piecesLeft[kind]} peças restantes`}
+                    onClick={() => setBuildMode(buildMode === kind ? null : kind)}>
+                    <span className="build-icon" aria-hidden>{BUILD_ICONS[kind]}</span>
+                    <span className="build-label">{BUILD_LABELS[kind]}</span>
+                    <Cost kind={kind} />
+                    <span className="pieces-left" aria-hidden>{me.piecesLeft[kind]}</span>
+                  </button>
+                ))}
+                <button className="build-btn" disabled={!legal.canBuyDevCard}
+                  title={legal.canBuyDevCard ? 'Comprar carta de desenvolvimento' : 'Sem recursos ou baralho vazio'}
+                  onClick={() => act({ type: 'buy_dev_card' })}>
+                  <span className="build-icon" aria-hidden>{BUILD_ICONS.devCard}</span>
+                  <span className="build-label">Carta</span>
+                  <Cost kind="devCard" />
+                </button>
+                <button className={`trade-btn ${showTrade ? 'active' : ''}`} aria-pressed={showTrade}
+                  onClick={() => setTradeOpen(!showTrade)} disabled={!!game.tradeOffer && showTrade}>
+                  <span className="build-icon" aria-hidden>⇄</span>
+                  <span className="build-label">Comércio</span>
+                </button>
+                <button className="primary-action" onClick={() => { setTradeOpen(false); act({ type: 'end_turn' }); }}>Passar a vez ➜</button>
+              </div>
+            )}
+          </div>
         </div>
 
         {flat && (

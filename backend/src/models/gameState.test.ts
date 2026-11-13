@@ -853,3 +853,17 @@ describe('jogador que sai', () => {
     assert.deepEqual(game.toView('A').bots, ['C']);
   });
 });
+
+test('5-6 jogadores: banco com 24 de cada recurso, baralho de 34 cartas e ladrão num deserto', () => {
+  const six = ['A', 'B', 'C', 'D', 'E', 'F'].map((userId, i) => ({ userId, color: `c${i}` }));
+  const game = new GameState(generateBoard(6), six);
+  for (const r of RESOURCES) assert.equal(game.bank[r], 24);
+  assert.equal(game.devDeck.length, 34);
+  assert.equal(game.devDeck.filter(c => c === 'knight').length, 20);
+  const robber = game.board.hexes.find(h => `${h.q},${h.r}` === game.robberHex)!;
+  assert.equal(robber.terrain, 'desert');
+
+  const base = new GameState(generateBoard(4), PLAYERS);
+  assert.equal(base.bank.wood, BANK_SIZE);
+  assert.equal(base.devDeck.length, 25);
+});

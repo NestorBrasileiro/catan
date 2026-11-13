@@ -39,7 +39,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: {
 
 const TIME_ICONS: Record<TimeOfDay, string> = { dawn: '🌅', day: '☀️', sunset: '🌇', night: '🌙' };
 const LAYER_ICONS: Record<keyof MapLayers, string> = {
-  numbers: '🔢', heatmap: '📊', labels: '🏷️', ports: '⚓', scenery: '🌲', clouds: '☁️',
+  numbers: '🔢', heatmap: '📊', labels: '🏷️', ports: '⚓', scenery: '🌲', villagers: '🧑‍🌾', clouds: '☁️',
 };
 
 function LayersPanel() {

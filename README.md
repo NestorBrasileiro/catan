@@ -66,9 +66,10 @@ npm test
 ```
 
 ## Status atual
-Referência de regras e interface: Catan base oficial, como no Board Game Arena. Por enquanto, 2–4 jogadores.
+Referência de regras e interface: Catan base oficial, como no Board Game Arena. De 2 a 6 jogadores: com 5 ou 6 a partida usa a ilha da expansão.
 
-- ✅ Lobby: registo, criar sala (2–4 jogadores), entrar por código, iniciar
+- ✅ Lobby: registo, criar sala (2–6 jogadores), entrar por código, iniciar
+- ✅ 5–6 jogadores (expansão): ilha de 30 hexágonos em fileiras de 3-4-5-6-5-4-3, 2 desertos, 28 fichas, 11 portos (um 3:1 e um de ovelha a mais), banco com 24 cartas de cada recurso, 34 cartas de desenvolvimento (20 cavaleiros) e as cores verde e marrom. A fase especial de construção entre os turnos ainda não existe
 - ✅ Tabuleiro aleatório oficial: 19 hexágonos, 9 portos, 6 e 8 nunca vizinhos, ladrão no deserto
 - ✅ Fundação: ordem sorteada, serpente (1-2-3-4, 4-3-2-1), regra de distância, recursos da 2ª aldeia
 - ✅ Turno: rolar dados, produção (aldeia 1, cidade 2, ladrão bloqueia, limite de 19 cartas por recurso no banco), construir estrada/aldeia/cidade com custos e limite de peças (15/5/4), passar a vez
@@ -84,7 +85,9 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Visual realista: relevo procedural em cada hexágono (picos nevados, colinas, dunas, campos arados), vegetação instanciada (milhares de árvores, trigo, rochas e ovelhas em poucas chamadas de desenho), céu físico, mar com profundidade, espuma na costa e reflexos, praias, barcos nos portos, peças laqueadas com janelas que acendem à noite
 - ✅ Modos de gráfico: Auto (escolhe pelo aparelho e reduz sozinho se o FPS cair), Baixo, Médio, Alto e Ultra (sombras 4K, oclusão de ambiente, MSAA 8×, reflexos reais no mar). Hora do dia (amanhecer, dia, pôr do sol, noite com estrelas), modo cinema (efeito miniatura) e contador de FPS. Tudo fica salvo no navegador
 - ✅ Navegação de mapa: arrastar move, botão direito (ou Ctrl+arrastar, dois dedos no celular) gira e inclina, roda dá zoom no cursor; botões de zoom, bússola, vista de cima e centralizar. A câmera enquadra a ilha no espaço livre entre os painéis
-- ✅ Camadas do mapa: números, mapa de produção (colunas pela chance de cada número), rótulos de recurso, portos, vegetação, nuvens, ou o plano 2D
+- ✅ Vida no campo: bonequinhos 3D trabalhando a terra de cada hexágono (fazendeiros com foice e tratores no trigo, mineiros com picareta e vagonete nos trilhos nas montanhas, lenhadores com machado, oleiros levando tijolos, pastor com cachorro e ovelhas pastando, andarilho no deserto). Param no hexágono do ladrão e pulam de alegria quando o hexágono produz
+- ✅ Comércio suspenso: banco, portos e ofertas abrem num painel flutuante logo acima da mão, com o estoque do banco e as taxas de porto em destaque; propostas recebidas aparecem no mesmo lugar
+- ✅ Camadas do mapa: números, mapa de produção (colunas pela chance de cada número), rótulos de recurso, portos, vegetação, vida no campo, nuvens, ou o plano 2D
 - ✅ Chat na partida (últimas 100 mensagens ficam guardadas para quem recarrega), guia "Como jogar" no botão "?" (regras, custos, cartas, ladrão, comércio, prêmios) e dados automáticos: na sua vez, sem carta de desenvolvimento para jogar, os dados rolam sozinhos
 - ✅ Contador de dados: painel com quantas vezes cada soma (2 a 12) saiu na partida, comparado com o esperado pela probabilidade
 - ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)

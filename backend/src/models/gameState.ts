@@ -41,6 +41,9 @@ export const COSTS = {
 } satisfies Record<string, Partial<Resources>>;
 
 export const DEV_DECK: DevCards = { knight: 14, victory_point: 5, road_building: 2, year_of_plenty: 2, monopoly: 2 };
+// 5-6 player extension: 34 cards and 24 of each resource in the bank
+export const DEV_DECK_XL: DevCards = { knight: 20, victory_point: 5, road_building: 3, year_of_plenty: 3, monopoly: 3 };
+export const BANK_SIZE_XL = 24;
 const PLAYABLE_DEV_CARDS: PlayableDevCard[] = ['knight', 'road_building', 'year_of_plenty', 'monopoly'];
 export const LARGEST_ARMY_MIN = 3;
 export const LONGEST_ROAD_MIN = 5;
@@ -183,8 +186,8 @@ function noDevCards(): DevCards {
   return { knight: 0, victory_point: 0, road_building: 0, year_of_plenty: 0, monopoly: 0 };
 }
 
-function shuffledDeck(): DevCardType[] {
-  const deck = (Object.keys(DEV_DECK) as DevCardType[]).flatMap(card => Array<DevCardType>(DEV_DECK[card]).fill(card));
+function shuffledDeck(cards: DevCards): DevCardType[] {
+  const deck = (Object.keys(cards) as DevCardType[]).flatMap(card => Array<DevCardType>(cards[card]).fill(card));
   for (let i = deck.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -206,7 +209,7 @@ export class GameState {
   readonly graph: BoardGraph;
   readonly buildings = new Map<string, Building>();
   readonly roads = new Map<string, string>();
-  readonly bank: Resources = resources(BANK_SIZE);
+  readonly bank: Resources;
   robberHex: string;
   dice: [number, number] | null = null;
   rollCount = 0;
@@ -217,7 +220,7 @@ export class GameState {
   lastRobbery: Robbery | null = null;
   tradeOffer: TradeOffer | null = null;
   readonly ports = new Map<string, PortType>(); // vertexKey → port it gives access to
-  devDeck: DevCardType[] = shuffledDeck(); // drawn from the end
+  devDeck: DevCardType[]; // drawn from the end
   devCardPlayed = false;
   freeRoadsLeft = 0;
   largestArmyHolder: string | null = null;
@@ -234,6 +237,10 @@ export class GameState {
     private readonly rollDice: () => [number, number] = rollTwoDice,
   ) {
     this.board = board;
+    // the extension's bigger island comes with a bigger bank and deck
+    const large = board.hexes.length > 19;
+    this.bank = resources(large ? BANK_SIZE_XL : BANK_SIZE);
+    this.devDeck = shuffledDeck(large ? DEV_DECK_XL : DEV_DECK);
     this.graph = buildBoardGraph(board.hexes);
     this.playerOrder = playerInfos.map(p => p.userId);
     for (const p of playerInfos) {

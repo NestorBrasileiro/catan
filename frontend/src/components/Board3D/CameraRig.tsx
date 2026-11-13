@@ -10,7 +10,7 @@ const DEFAULT_TILT = 0.74;     // radians from straight down
 const TOP_DOWN = 0.02;
 const MIN_DISTANCE = 3.5;
 const MAX_DISTANCE = 30;
-const PAN_LIMIT = 5.5;         // the target stays over the island
+const BASE_EXTENT = 4.6;       // the base island's radius, which the framing below was tuned for
 
 interface Goal {
   theta: number;
@@ -30,7 +30,7 @@ const scratch = { spherical: new Spherical(), offset: new Vector3() };
 
 // One frame of camera motion: the transition towards a goal, the pan limit, and the compass
 function stepCamera(map: MapControls, camera: Camera, goal: { current: Goal | null },
-  lastPose: { current: { heading: number; tilt: number } }, delta: number) {
+  lastPose: { current: { heading: number; tilt: number } }, delta: number, panLimit: number) {
   const { spherical: s, offset } = scratch;
   const g = goal.current;
   if (g) {
@@ -50,8 +50,8 @@ function stepCamera(map: MapControls, camera: Camera, goal: { current: Goal | nu
   const t = map.target;
   t.y = 0;
   const reach = Math.hypot(t.x, t.z);
-  if (reach > PAN_LIMIT) {
-    const pull = (reach - PAN_LIMIT) / reach;
+  if (reach > panLimit) {
+    const pull = (reach - panLimit) / reach;
     offset.set(t.x * pull, 0, t.z * pull);
     t.sub(offset);
     camera.position.sub(offset);
@@ -71,12 +71,13 @@ const HALF_FOV = Math.tan((38 / 2) * (Math.PI / 180));
 
 // How far back the camera must sit for the whole island to fit in the part of the screen the panels
 // leave free
-function fitDistance(width: number, height: number, pad: ViewPadding) {
+function fitDistance(width: number, height: number, pad: ViewPadding, extent: number) {
+  const scale = extent / BASE_EXTENT;
   const freeW = Math.max(0.35, (width - pad.left - pad.right) / width);
   const freeH = Math.max(0.35, (height - pad.top - pad.bottom) / height);
-  const vertical = 9.4 / (2 * HALF_FOV * freeH);
-  const horizontal = 11.8 / (2 * HALF_FOV * (width / height) * freeW);
-  return Math.min(MAX_DISTANCE * 0.9, Math.max(9, vertical, horizontal));
+  const vertical = (9.4 * scale) / (2 * HALF_FOV * freeH);
+  const horizontal = (11.8 * scale) / (2 * HALF_FOV * (width / height) * freeW);
+  return Math.min(MAX_DISTANCE * 0.95, Math.max(9, vertical, horizontal));
 }
 
 // Shifts the picture's center into the free part of the screen, like a web map's padding: the island
@@ -98,11 +99,14 @@ interface CameraRigProps {
   autoRotate?: boolean;
   intro?: boolean;      // fly in from high above when the board first appears
   padding?: ViewPadding; // screen space the floating panels cover, in CSS pixels
+  extent?: number;       // the island's radius around its center, in world units
 }
 
 // Mapbox-style navigation: drag to pan, right-drag (or Ctrl+drag) to rotate and tilt, scroll to zoom
 // towards the cursor. The HUD's buttons drive it through cameraBus with smooth transitions.
-export default function CameraRig({ interactive, autoRotate = false, intro = false, padding = NO_PADDING }: CameraRigProps) {
+export default function CameraRig({
+  interactive, autoRotate = false, intro = false, padding = NO_PADDING, extent = BASE_EXTENT,
+}: CameraRigProps) {
   const { camera, gl, size } = useThree();
   const controls = useRef<MapControls | null>(null);
   const goal = useRef<Goal | null>(null);
@@ -118,8 +122,8 @@ export default function CameraRig({ interactive, autoRotate = false, intro = fal
     const homeView = (): Goal => {
       const { width, height, padding: pad } = view.current;
       return autoRotate
-        ? { theta: 0.5, phi: 1.02, radius: fitDistance(width, height, NO_PADDING) * 1.05, target: new Vector3(0, 0, 1.2) }
-        : { theta: 0, phi: DEFAULT_TILT, radius: fitDistance(width, height, pad), target: TARGET.clone() };
+        ? { theta: 0.5, phi: 1.02, radius: fitDistance(width, height, NO_PADDING, extent) * 1.05, target: new Vector3(0, 0, 1.2) }
+        : { theta: 0, phi: DEFAULT_TILT, radius: fitDistance(width, height, pad, extent), target: TARGET.clone() };
     };
     const home = homeView();
     offsetNow.current = { x: (padding.right - padding.left) / 2, y: (padding.bottom - padding.top) / 2 };
@@ -194,7 +198,7 @@ export default function CameraRig({ interactive, autoRotate = false, intro = fal
   useFrame((_, delta) => {
     const { width, height, padding: pad } = view.current;
     applyPadding(camera as PerspectiveCamera, width, height, offsetNow.current, pad, delta);
-    if (controls.current) stepCamera(controls.current, camera, goal, lastPose, delta);
+    if (controls.current) stepCamera(controls.current, camera, goal, lastPose, delta, extent + 1);
   });
 
   return null;

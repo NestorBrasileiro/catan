@@ -32,7 +32,7 @@
 /* ---------- HUD grid ----------
    players | status  | toolbar
    players | alerts  | drawer
-   nav     | dock    | drawer          */
+   nav     | dock (spans to the right) */
 .hud {
   position: absolute;
   inset: 0;
@@ -43,7 +43,7 @@
   grid-template-areas:
     'players status toolbar'
     'players alerts drawer'
-    'nav     dock   drawer';
+    'nav     dock   dock';
   gap: var(--gap);
   padding: var(--edge);
   pointer-events: none;
@@ -53,7 +53,7 @@
   grid-template-areas:
     'players status toolbar'
     'players alerts .'
-    'nav     dock   .';
+    'nav     dock   dock';
 }
 
 .hud-players { grid-area: players; align-self: start; overflow: hidden auto; max-height: 100%; }
@@ -62,7 +62,8 @@
 .hud-alerts { grid-area: alerts; justify-self: center; align-self: start; }
 .hud-nav { grid-area: nav; justify-self: start; align-self: end; }
 .hud-drawer { grid-area: drawer; min-height: 0; align-self: start; max-height: 100%; }
-.hud-dock { grid-area: dock; justify-self: center; align-self: end; }
+.hud-bottom { grid-area: dock; justify-self: center; align-self: end; display: flex; flex-direction: column; align-items: center; gap: var(--gap); max-width: 100%; min-height: 0; max-height: 100%; pointer-events: none; }
+.hud-bottom > * { pointer-events: auto; }
 
 .hud-alerts, .hud-status { pointer-events: none; }
 .hud-alerts > *, .hud-status > * { pointer-events: auto; }
@@ -299,6 +300,90 @@
 }
 .leave-confirm p { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 
+/* ---------- Trade: suspended right above the dock, where the eye already is ---------- */
+
+.trade-float {
+  width: min(680px, 100%);
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  animation: float-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes float-up {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.trade-float .panel {
+  padding: 1rem 1.1rem 1.1rem;
+  background: rgba(12, 16, 26, 0.9);
+  border: 1px solid rgba(244, 183, 64, 0.45);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 0 0 4px rgba(244, 183, 64, 0.08);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+.trade-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+.trade-head h3 { margin: 0; color: var(--accent); font-size: 0.78rem; }
+.bank-stock {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+.bank-stock .muted { font-size: 0.7rem; margin-right: 2px; }
+.stock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--res) 40%, rgba(0, 0, 0, 0.3));
+  font-variant-numeric: tabular-nums;
+}
+.stock-chip b { font-size: 0.72rem; }
+.stock-chip.out { opacity: 0.4; }
+.trade-close { width: 30px; height: 30px; font-size: 0.85rem; color: var(--text-muted); }
+.trade-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem;
+}
+.trade-col + .trade-col {
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--glass-border);
+}
+.trade-col h4 { margin-top: 0; }
+.bank-btn.port { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(244, 183, 64, 0.35); }
+.bank-btn.port small { color: var(--accent); font-weight: 700; }
+
+.incoming-offer h3 { display: flex; align-items: center; gap: 0.45rem; color: var(--text); font-size: 0.8rem; }
+.offer-swap {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.3rem 0 0.2rem;
+}
+.offer-swap > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: var(--glass-inner);
+  border: 1px solid var(--glass-border);
+}
+.offer-swap small { font-size: 0.7rem; color: var(--text-muted); }
+.offer-swap strong { font-size: 1.05rem; }
+.offer-arrow { font-size: 1.3rem; color: var(--accent); }
+.trade-float .incoming-offer { width: min(440px, 100%); margin: 0 auto; }
+
 /* ---------- Dock: hand and actions ---------- */
 
 .hud-dock {
@@ -319,8 +404,8 @@
 .res-card {
   --res: #777;
   position: relative;
-  width: 50px;
-  height: 66px;
+  width: 46px;
+  height: 64px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -364,7 +449,7 @@
 
 .build-btn {
   position: relative;
-  width: 74px;
+  width: 68px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -378,6 +463,24 @@
   font-size: 0.75rem;
 }
 .build-btn:hover:not(:disabled) { background: var(--glass-hover); filter: none; }
+.trade-btn {
+  width: 72px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.35rem 0.2rem;
+  border-radius: 11px;
+  font-size: 0.75rem;
+  background: var(--accent-soft);
+  border: 1px solid rgba(244, 183, 64, 0.6);
+  color: var(--text);
+}
+.trade-btn .build-icon { font-size: 1.3rem; color: var(--accent); }
+.trade-btn.active { background: var(--accent); color: var(--accent-ink); }
+.trade-btn.active .build-icon { color: var(--accent-ink); }
 .build-btn.active {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -708,7 +811,13 @@ button.play-btn.active { box-shadow: 0 0 0 2px var(--text); }
     to { opacity: 1; transform: none; }
   }
 
-  .hud-dock { justify-self: stretch; flex-wrap: wrap; justify-content: center; }
+  .hud-bottom { justify-self: stretch; }
+  .hud-dock { align-self: stretch; flex-wrap: wrap; justify-content: center; }
+  .trade-float { max-height: 55dvh; }
+  .trade-cols { grid-template-columns: 1fr; }
+  .trade-col + .trade-col { padding-left: 0; border-left: none; padding-top: 0.9rem; border-top: 1px solid var(--glass-border); }
+  .bank-stock .muted { display: none; }
+  .trade-btn { width: 64px; }
   .res-card { width: 44px; height: 58px; }
   .dock-actions { border-left: none; padding-left: 0; flex-wrap: wrap; justify-content: center; }
   .build-btn { width: 64px; }
@@ -717,5 +826,5 @@ button.play-btn.active { box-shadow: 0 0 0 2px var(--text); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hud-drawer, .hud-alerts .panel, .robbery-note { animation: none; }
+  .hud-drawer, .hud-alerts .panel, .robbery-note, .trade-float { animation: none; }
 }
