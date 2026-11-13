@@ -1,6 +1,7 @@
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace } from 'three';
-import type { TerrainType } from '../Board/boardTypes';
+import { CanvasTexture, ClampToEdgeWrapping, LinearSRGBColorSpace, NoColorSpace, RepeatWrapping, SRGBColorSpace } from 'three';
+import { coastlinePoints, type HexTile } from '../Board/boardTypes';
 import { seededRandom } from './layout';
+import { fbm } from './noise';
 
 function canvasTexture(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
   const canvas = document.createElement('canvas');
@@ -17,7 +18,8 @@ const DOTS: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4,
 
 // Face of a number token: the number and its probability dots; 6 and 8 in red
 export function tokenTexture(number: number) {
-  return canvasTexture(128, 128, ctx => {
+  return canvasTexture(256, 256, ctx => {
+    ctx.scale(2, 2);
     const color = number === 6 || number === 8 ? '#c0392b' : '#222';
     ctx.fillStyle = '#fdf5e6';
     ctx.fillRect(0, 0, 128, 128);
@@ -89,93 +91,6 @@ function blotches(ctx: Ctx, random: () => number, colors: string[], count: numbe
   ctx.globalAlpha = 1;
 }
 
-function strokes(ctx: Ctx, random: () => number, color: string, count: number, length: number, width: number, alpha: number) {
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = 'round';
-  for (let i = 0; i < count; i++) {
-    const x = random() * SIZE;
-    const y = random() * SIZE;
-    const angle = random() * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-}
-
-const GROUND: Record<TerrainType, (ctx: Ctx, random: () => number) => void> = {
-  forest: (ctx, random) => {
-    ctx.fillStyle = '#3f7d3a';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#2f6a2e', '#4d8f45', '#356f33'], 70, 18, 0.5);
-    strokes(ctx, random, '#255a26', 160, 5, 2, 0.5); // undergrowth
-  },
-  pasture: (ctx, random) => {
-    ctx.fillStyle = '#8fce55';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#a2dc66', '#7dbd48', '#98d45c'], 60, 20, 0.5);
-    strokes(ctx, random, '#6aa83c', 220, 4, 1.5, 0.6); // grass blades
-    blotches(ctx, random, ['#ffffff', '#ffe36e'], 26, 1.6, 0.9); // flowers
-  },
-  fields: (ctx, random) => {
-    ctx.fillStyle = '#e9c64a';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#f2d568', '#dcb53c'], 40, 22, 0.4);
-    // plowed furrows
-    ctx.strokeStyle = '#c79f2c';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 0.55;
-    for (let x = -SIZE; x < SIZE * 2; x += 14) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x + SIZE * 0.5, SIZE);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  },
-  hills: (ctx, random) => {
-    ctx.fillStyle = '#c8703a';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#b85f2e', '#d98548', '#a9542a'], 60, 20, 0.5);
-    strokes(ctx, random, '#7e3a1a', 45, 16, 1.5, 0.45); // cracks in the clay
-  },
-  mountains: (ctx, random) => {
-    ctx.fillStyle = '#8d9299';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#7b8088', '#a1a6ad', '#6f747c'], 70, 16, 0.55);
-    blotches(ctx, random, ['#5d6168', '#c3c7cc'], 300, 1.5, 0.7); // gravel
-  },
-  desert: (ctx, random) => {
-    ctx.fillStyle = '#e6d3a0';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    blotches(ctx, random, ['#f0e0b4', '#d9c48c'], 40, 24, 0.5);
-    // wind ripples
-    ctx.strokeStyle = '#cdb67c';
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.6;
-    for (let y = 8; y < SIZE; y += 16) {
-      ctx.beginPath();
-      for (let x = 0; x <= SIZE; x += 8) ctx.lineTo(x, y + Math.sin(x / 22 + y) * 4);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  },
-};
-
-const groundCache = new Map<TerrainType, CanvasTexture>();
-
-export function groundTexture(terrain: TerrainType) {
-  let texture = groundCache.get(terrain);
-  if (!texture) {
-    texture = canvasTexture(SIZE, SIZE, ctx => GROUND[terrain](ctx, seededRandom(terrain.length * 7 + terrain.charCodeAt(0))));
-    groundCache.set(terrain, texture);
-  }
-  return texture;
-}
-
 export function sandTexture() {
   return canvasTexture(SIZE, SIZE, ctx => {
     const random = seededRandom(11);
@@ -204,47 +119,159 @@ export function woodTexture() {
   });
 }
 
-// Sea surface that tiles seamlessly: darker and lighter patches with wave crests on top
-export function waterTexture() {
+
+// Seamless ripples for the sea's normal map: sine waves with whole wave counts across the tile
+export function waterNormalTexture(size = 512) {
+  const random = seededRandom(21);
+  const waves = Array.from({ length: 28 }, () => {
+    const kx = Math.round((random() - 0.5) * 18);
+    const ky = Math.round((random() - 0.5) * 18) || 1;
+    const k = Math.hypot(kx, ky);
+    return { kx, ky, phase: random() * Math.PI * 2, amp: 1 / (0.6 + k * 0.35) };
+  });
+  const height = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let h = 0;
+      for (const w of waves) h += w.amp * Math.sin(((w.kx * x + w.ky * y) / size) * Math.PI * 2 + w.phase);
+      height[y * size + x] = h;
+    }
+  }
+  const texture = canvasTexture(size, size, ctx => {
+    const image = ctx.createImageData(size, size);
+    const at = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = (at(x + 1, y) - at(x - 1, y)) * 0.9;
+        const dy = (at(x, y + 1) - at(x, y - 1)) * 0.9;
+        const length = Math.hypot(dx, dy, 1);
+        const i = (y * size + x) * 4;
+        image.data[i] = ((-dx / length) * 0.5 + 0.5) * 255;
+        image.data[i + 1] = ((-dy / length) * 0.5 + 0.5) * 255;
+        image.data[i + 2] = ((1 / length) * 0.5 + 0.5) * 255;
+        image.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  });
+  texture.colorSpace = NoColorSpace;
+  texture.wrapS = texture.wrapT = RepeatWrapping;
+  return texture;
+}
+
+// World units the shore textures cover, centered on the island
+export const SHORE_EXTENT = 20;
+
+// Draws the island's outline on a canvas laid over the sea, softened with a shadow blur
+// (works in every browser, unlike ctx.filter)
+function coastStroke(ctx: Ctx, hexes: HexTile[], px: number, width: number, blur: number, color: string, fill = false) {
+  const points = coastlinePoints(hexes, 1);
+  const toPx = (v: number) => (v / SHORE_EXTENT + 0.5) * px;
+  const far = px * 3;
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetX = far;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = (width / SHORE_EXTENT) * px;
+  ctx.beginPath();
+  points.forEach((p, i) => (i === 0 ? ctx.moveTo(toPx(p.x) - far, toPx(p.y)) : ctx.lineTo(toPx(p.x) - far, toPx(p.y))));
+  ctx.closePath();
+  if (fill) ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Sea color around the island: deep blue far out, turquoise shallows and a pale band at the shore
+export function shoreTexture(hexes: HexTile[], px = 1024) {
+  const texture = canvasTexture(px, px, ctx => {
+    ctx.fillStyle = '#0b3f5f';
+    ctx.fillRect(0, 0, px, px);
+    const scale = px / 1024;
+    coastStroke(ctx, hexes, px, 3.6, 90 * scale, 'rgba(18, 104, 140, 0.9)', true);
+    coastStroke(ctx, hexes, px, 2.2, 46 * scale, 'rgba(32, 150, 165, 0.85)', true);
+    coastStroke(ctx, hexes, px, 1.1, 18 * scale, 'rgba(70, 196, 190, 0.85)');
+    coastStroke(ctx, hexes, px, 0.55, 6 * scale, 'rgba(170, 232, 220, 0.9)');
+    // patches of darker water (seaweed, depth) break the rings up
+    const random = seededRandom(4);
+    ctx.globalCompositeOperation = 'multiply';
+    for (let i = 0; i < 90; i++) {
+      const x = random() * px;
+      const y = random() * px;
+      const r = (10 + random() * 40) * scale;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(40, 90, 110, ${0.15 + random() * 0.15})`);
+      g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  });
+  texture.wrapS = texture.wrapT = ClampToEdgeWrapping;
+  return texture;
+}
+
+// White surf hugging the coast, broken up so it doesn't read as a clean line
+export function surfTexture(hexes: HexTile[], px = 1024) {
+  const texture = canvasTexture(px, px, ctx => {
+    const scale = px / 1024;
+    coastStroke(ctx, hexes, px, 0.75, 10 * scale, 'rgba(255, 255, 255, 0.95)');
+    coastStroke(ctx, hexes, px, 1.3, 20 * scale, 'rgba(255, 255, 255, 0.35)');
+    // knock holes into the foam with noise
+    const image = ctx.getImageData(0, 0, px, px);
+    for (let y = 0; y < px; y++) {
+      for (let x = 0; x < px; x++) {
+        const i = (y * px + x) * 4 + 3;
+        if (!image.data[i]) continue;
+        const n = fbm(x / (14 * scale), y / (14 * scale), 3, 3);
+        image.data[i] *= Math.min(1, Math.max(0, (n - 0.32) * 2.6));
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  });
+  texture.wrapS = texture.wrapT = ClampToEdgeWrapping;
+  return texture;
+}
+
+// Soft puff for clouds
+export function cloudTexture() {
+  return canvasTexture(256, 256, ctx => {
+    const random = seededRandom(8);
+    for (let i = 0; i < 16; i++) {
+      const x = 60 + random() * 136;
+      const y = 90 + random() * 70;
+      const r = 30 + random() * 50;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(255, 255, 255, 0.55)');
+      g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 256, 256);
+    }
+  });
+}
+
+// Fine grain multiplied over the terrain colors, so close-ups aren't flat
+export function detailTexture() {
   const texture = canvasTexture(SIZE, SIZE, ctx => {
-    const random = seededRandom(3);
-    ctx.fillStyle = '#1b78ad';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    // everything is drawn nine times, shifted by one tile, so the edges match
-    const tiled = (draw: (dx: number, dy: number) => void) => {
-      for (const dx of [-SIZE, 0, SIZE]) for (const dy of [-SIZE, 0, SIZE]) draw(dx, dy);
-    };
-    for (let i = 0; i < 26; i++) {
-      const x = random() * SIZE;
-      const y = random() * SIZE;
-      const rx = 18 + random() * 30;
-      const ry = 8 + random() * 12;
-      ctx.fillStyle = random() > 0.5 ? '#2389c2' : '#156797';
-      ctx.globalAlpha = 0.35;
-      tiled((dx, dy) => {
-        ctx.beginPath();
-        ctx.ellipse(x + dx, y + dy, rx, ry, 0, 0, Math.PI * 2);
-        ctx.fill();
-      });
+    const image = ctx.createImageData(SIZE, SIZE);
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        // tileable: sample noise on a torus-like wrap by blending the four shifted copies
+        const u = x / SIZE;
+        const v = y / SIZE;
+        const n = (fbm(x / 9, y / 9, 1, 4) * (1 - u) * (1 - v) + fbm((x - SIZE) / 9, y / 9, 1, 4) * u * (1 - v)
+          + fbm(x / 9, (y - SIZE) / 9, 1, 4) * (1 - u) * v + fbm((x - SIZE) / 9, (y - SIZE) / 9, 1, 4) * u * v);
+        const value = 222 + n * 33;
+        const i = (y * SIZE + x) * 4;
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = value;
+        image.data[i + 3] = 255;
+      }
     }
-    ctx.strokeStyle = '#d8f1ff';
-    ctx.lineCap = 'round';
-    for (let i = 0; i < 34; i++) {
-      const x = random() * SIZE;
-      const y = random() * SIZE;
-      const length = 14 + random() * 26;
-      ctx.lineWidth = 1.2 + random() * 1.4;
-      ctx.globalAlpha = 0.25 + random() * 0.3;
-      tiled((dx, dy) => {
-        ctx.beginPath();
-        ctx.moveTo(x + dx, y + dy);
-        ctx.quadraticCurveTo(x + dx + length / 2, y + dy - 5, x + dx + length, y + dy);
-        ctx.stroke();
-      });
-    }
-    ctx.globalAlpha = 1;
+    ctx.putImageData(image, 0, 0);
   });
   texture.wrapS = texture.wrapT = RepeatWrapping;
-  texture.repeat.set(28, 28);
+  texture.colorSpace = LinearSRGBColorSpace;
   return texture;
 }

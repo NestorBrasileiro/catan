@@ -29,15 +29,15 @@ export default function LobbyMenu() {
 
   if (mode === 'menu') {
     return (
-      <div className="card">
-        <h2>Lobby</h2>
-        <p className="muted lobby-user">
-          Jogando como <strong>{user?.username}</strong> ·{' '}
+      <div className="lobby-card glass">
+        <h1>Olá, {user?.username}</h1>
+        <p className="lead lobby-user">
+          Crie uma partida e mande o código para a galera, ou entre com um código.{' '}
           <button className="link-btn" onClick={switchPlayer}>Trocar de jogador</button>
         </p>
-        <div className="room-actions">
-          <button onClick={() => setMode('create')}>🏗️ Criar Nova Partida</button>
-          <button onClick={() => setMode('join')}>🚪 Entrar em Partida</button>
+        <div className="lobby-actions">
+          <button onClick={() => setMode('create')}>Criar nova partida</button>
+          <button className="btn-secondary" onClick={() => setMode('join')}>Entrar com código</button>
         </div>
       </div>
     );
@@ -45,42 +45,48 @@ export default function LobbyMenu() {
 
   if (mode === 'create') {
     return (
-      <div className="card">
-        <h2>Criar Sala</h2>
+      <div className="lobby-card glass">
+        <h2>Nova partida</h2>
         <form onSubmit={handleCreate}>
           <label>
-            Jogadores (2-4):
+            Jogadores
             <select value={maxPlayers} onChange={(e) => setMaxPlayers(Number(e.target.value))}>
-              {[2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+              {[2, 3, 4].map(n => <option key={n} value={n}>{n} jogadores</option>)}
             </select>
           </label>
           <label>
-            Tempo por turno (s):
+            Tempo por turno (segundos)
             <input type="number" value={turnTimer} onChange={(e) => setTurnTimer(Number(e.target.value))} min={30} max={600} />
           </label>
-          <button type="submit" disabled={loading}>{loading ? 'Criando...' : 'Criar'}</button>
-          <button type="button" onClick={() => setMode('menu')}>Voltar</button>
+          <div className="lobby-actions two">
+            <button type="button" className="btn-secondary" onClick={() => setMode('menu')}>Voltar</button>
+            <button type="submit" disabled={loading}>{loading ? 'Criando…' : 'Criar'}</button>
+          </div>
         </form>
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <h2>Entrar em Sala</h2>
+    <div className="lobby-card glass">
+      <h2>Entrar em partida</h2>
       <form onSubmit={handleJoin}>
         <input
           type="text"
-          placeholder="Código da sala"
+          className="code-input"
+          placeholder="CÓDIGO"
+          aria-label="Código da sala"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           maxLength={5}
+          autoFocus
           required
         />
-        <button type="submit" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
-        <button type="button" onClick={() => setMode('menu')}>Voltar</button>
+        <div className="lobby-actions two">
+          <button type="button" className="btn-secondary" onClick={() => setMode('menu')}>Voltar</button>
+          <button type="submit" disabled={loading}>{loading ? 'Entrando…' : 'Entrar'}</button>
+        </div>
       </form>
     </div>
   );
 }
-

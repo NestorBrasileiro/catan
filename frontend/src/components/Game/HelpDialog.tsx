@@ -101,7 +101,19 @@ export default function HelpDialog({ onClose }: { onClose: () => void }) {
         </ul>
 
         <h3>No placar</h3>
-        <p>⭐ pontos · 🃏 cartas de recurso · 📜 cartas de desenvolvimento · ⚔️ cavaleiros jogados · 🛣️ maior estrada contínua</p>
+        <p>pts pontos · 🃏 cartas de recurso · 📜 cartas de desenvolvimento · ⚔️ cavaleiros jogados · 🛤️ maior estrada contínua</p>
+
+        <h3>Mapa</h3>
+        <ul className="help-list">
+          <li><strong>Mover:</strong> arraste com o botão esquerdo (ou um dedo).</li>
+          <li><strong>Girar e inclinar:</strong> arraste com o botão direito, ou Ctrl/⌘ + arrastar (dois dedos no celular).</li>
+          <li><strong>Zoom:</strong> roda do mouse ou pinça, em direção ao cursor. Os botões no canto também fazem isso,
+            e a bússola volta para o norte.</li>
+          <li><strong>Camadas</strong> (ícone de pilha): números, mapa de produção, rótulos, portos, vegetação e nuvens,
+            ou o plano 2D.</li>
+          <li><strong>Gráficos</strong> (ícone de controles): qualidade de Baixo a Ultra, ou Auto, que reduz sozinho se o
+            jogo ficar lento; hora do dia e modo cinema.</li>
+        </ul>
       </div>
     </dialog>
   );

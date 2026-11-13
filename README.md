@@ -6,6 +6,7 @@ Versão web multiplayer do Catan.
 ## Stack
 - **Backend**: Node.js + TypeScript + Express + Socket.IO + SQLite (better-sqlite3)
 - **Frontend**: React 19 + Vite + TypeScript + socket.io-client
+- **3D**: three.js + React Three Fiber, drei (céu, ambiente, reflexos) e postprocessing (oclusão de ambiente, brilho, tone mapping)
 
 ## Estrutura
 ```
@@ -79,7 +80,11 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Reconexão: recarregar a página ou perder a conexão devolve o jogador ao mesmo lugar (sessão por token; só o hash fica no banco). Na sala de espera, quem cai tem 20 s para voltar; se o host sai, o próximo vira host
 - ✅ Presença e saída: o placar mostra quem está offline; quem clica em "Sair da partida" é substituído por um bot, que fica com as cartas e construções e joga sozinho (constrói, compra e joga cartas, troca com o banco, move o ladrão; recusa trocas entre jogadores). Quem fica offline por mais de 20 s também é coberto pelo bot, e retoma o lugar ao voltar. Se todos os humanos saem, a partida é encerrada; se todos estão só offline, ela espera
 - ✅ Animações e som: os dados rolam no canto do tabuleiro e o resultado só aparece quando param; as cartas produzidas voam do hexágono até a mão de quem ganhou. Sons gerados no navegador (sem arquivos de áudio) para dados, cartas, construção, sua vez, ladrão, oferta de troca e fim de jogo, com botão 🔊/🔇 que fica salvo. Quem tem "reduzir movimento" ligado no sistema não vê as animações
-- ✅ Tabuleiro 3D (three.js): terrenos com relevo, portos como barcos, peças que caem no lugar, ladrão que anda e dados que rolam na cena. Arraste para girar a câmera e role para aproximar. O botão 2D/3D ao lado do status volta para o tabuleiro plano (a escolha fica salva). Há também um botão para maximizar o jogo na janela e outro para a tela cheia do navegador
+- ✅ Mapa 3D em tela cheia: a aba inteira é o mapa e os painéis flutuam por cima, em vidro fosco (jogadores, status e dados no topo, mão e ações numa barra embaixo, comércio/cartas/chat/estatísticas numa gaveta lateral que vira folha inferior no celular). O lobby também flutua sobre uma ilha 3D girando no mar
+- ✅ Visual realista: relevo procedural em cada hexágono (picos nevados, colinas, dunas, campos arados), vegetação instanciada (milhares de árvores, trigo, rochas e ovelhas em poucas chamadas de desenho), céu físico, mar com profundidade, espuma na costa e reflexos, praias, barcos nos portos, peças laqueadas com janelas que acendem à noite
+- ✅ Modos de gráfico: Auto (escolhe pelo aparelho e reduz sozinho se o FPS cair), Baixo, Médio, Alto e Ultra (sombras 4K, oclusão de ambiente, MSAA 8×, reflexos reais no mar). Hora do dia (amanhecer, dia, pôr do sol, noite com estrelas), modo cinema (efeito miniatura) e contador de FPS. Tudo fica salvo no navegador
+- ✅ Navegação de mapa: arrastar move, botão direito (ou Ctrl+arrastar, dois dedos no celular) gira e inclina, roda dá zoom no cursor; botões de zoom, bússola, vista de cima e centralizar. A câmera enquadra a ilha no espaço livre entre os painéis
+- ✅ Camadas do mapa: números, mapa de produção (colunas pela chance de cada número), rótulos de recurso, portos, vegetação, nuvens, ou o plano 2D
 - ✅ Chat na partida (últimas 100 mensagens ficam guardadas para quem recarrega), guia "Como jogar" no botão "?" (regras, custos, cartas, ladrão, comércio, prêmios) e dados automáticos: na sua vez, sem carta de desenvolvimento para jogar, os dados rolam sozinhos
 - ✅ Contador de dados: painel com quantas vezes cada soma (2 a 12) saiu na partida, comparado com o esperado pela probabilidade
 - ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)

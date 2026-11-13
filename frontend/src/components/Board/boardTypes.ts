@@ -226,8 +226,8 @@ export function hexCornerPixel(q: number, r: number, corner: number, size: numbe
   };
 }
 
-// Build the coastline path around all land hexes
-export function buildCoastlinePath(hexes: HexTile[], size: number): string {
+// Corners of the island's outline, in order, at the given hex size
+export function coastlinePoints(hexes: HexTile[], size: number): { x: number; y: number }[] {
   // Collect all hex centers
   const landSet = new Set(hexes.map(h => `${h.q},${h.r}`));
 
@@ -262,9 +262,9 @@ export function buildCoastlinePath(hexes: HexTile[], size: number): string {
   }
 
   // Chain segments into a closed path
-  if (edgeSegments.length === 0) return '';
+  if (edgeSegments.length === 0) return [];
 
-  const eps = 0.5;
+  const eps = size * 0.01;
   const used = new Array(edgeSegments.length).fill(false);
   const path: { x: number; y: number }[] = [];
 
@@ -295,6 +295,13 @@ export function buildCoastlinePath(hexes: HexTile[], size: number): string {
     if (!found) break;
   }
 
+  return path;
+}
+
+// Build the coastline path around all land hexes
+export function buildCoastlinePath(hexes: HexTile[], size: number): string {
+  const path = coastlinePoints(hexes, size);
+  if (path.length === 0) return '';
   return path.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + ' Z';
 }
 

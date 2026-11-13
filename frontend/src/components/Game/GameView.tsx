@@ -1,7 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react';
 import { useGame } from '../../contexts/useGame';
+import { updateGraphics, useGraphics } from '../../services/graphics';
 import Board from '../Board/Board';
 import { BUILD_COSTS, RESOURCE_INFO, RESOURCE_ORDER, type BuildKind, type GameAction } from '../Board/boardTypes';
+import MapNav from '../HUD/MapNav';
+import MapToolbar from '../HUD/MapToolbar';
+import { CloseIcon, ExitIcon, PanelIcon } from '../HUD/icons';
+import { useHudPadding } from '../HUD/useHudPadding';
 import ChatPanel from './ChatPanel';
 import Dice from './Dice';
 import DevCardsPanel from './DevCardsPanel';
@@ -9,51 +14,52 @@ import DiscardPanel from './DiscardPanel';
 import HelpDialog from './HelpDialog';
 import RollStats from './RollStats';
 import IncomingOffer from './IncomingOffer';
-import SoundToggle from './SoundToggle';
 import TradePanel from './TradePanel';
 import { useGameFeedback } from './useGameFeedback';
 import { useRollReveal } from './useRollReveal';
+import '../HUD/hud.css';
 import './GameView.css';
 
-// three.js is heavy, so it only loads when the 3D board is shown
+// three.js is heavy, so it only loads when the 3D map is shown
 const Board3D = lazy(() => import('../Board3D/Board3D'));
-const BOARD_MODE_KEY = 'catan.board2d';
-
-function savedBoardIs2D(): boolean {
-  try {
-    return localStorage.getItem(BOARD_MODE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
 
 const BUILD_KINDS: BuildKind[] = ['road', 'settlement', 'city'];
 const BUILD_LABELS: Record<BuildKind, string> = { road: 'Estrada', settlement: 'Aldeia', city: 'Cidade' };
+const BUILD_ICONS: Record<BuildKind | 'devCard', string> = { road: '🛤️', settlement: '🏠', city: '🏰', devCard: '📜' };
 
-function costText(kind: BuildKind | 'devCard'): string {
-  return RESOURCE_ORDER
-    .filter(r => BUILD_COSTS[kind][r])
-    .map(r => RESOURCE_INFO[r].emoji.repeat(BUILD_COSTS[kind][r]!))
-    .join('');
+type Tab = 'trade' | 'cards' | 'chat' | 'stats';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'trade', label: 'Comércio' },
+  { id: 'cards', label: 'Cartas' },
+  { id: 'chat', label: 'Chat' },
+  { id: 'stats', label: 'Dados' },
+];
+
+function Cost({ kind }: { kind: BuildKind | 'devCard' }) {
+  return (
+    <span className="cost" aria-hidden>
+      {RESOURCE_ORDER.filter(r => BUILD_COSTS[kind][r]).map(r => (
+        <span key={r} className={`cost-chip res-${r}`}>{RESOURCE_INFO[r].emoji}{BUILD_COSTS[kind][r]! > 1 && <b>{BUILD_COSTS[kind][r]}</b>}</span>
+      ))}
+    </span>
+  );
+}
+
+function isPhone() {
+  return window.matchMedia('(max-width: 760px)').matches;
 }
 
 export default function GameView() {
-  const { room, user, board, gameState, sendAction, leaveRoom } = useGame();
+  const { room, user, board, gameState, chat, sendAction, leaveRoom } = useGame();
+  const settings = useGraphics();
   const [buildMode, setBuildMode] = useState<BuildKind | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
-  const [flat, setFlat] = useState(savedBoardIs2D);
   const [showHelp, setShowHelp] = useState(false);
-  const [maximized, setMaximized] = useState(false);          // the game fills the browser window
-  const [browserFullscreen, setBrowserFullscreen] = useState(false); // the browser itself is fullscreen
+  const [tab, setTab] = useState<Tab>('chat');
+  const [drawerOpen, setDrawerOpen] = useState(() => !isPhone());
+  const [seenChat, setSeenChat] = useState(chat.length);
+  const padding = useHudPadding('game', drawerOpen);
 
-  useEffect(() => {
-    const sync = () => setBrowserFullscreen(document.fullscreenElement !== null);
-    document.addEventListener('fullscreenchange', sync);
-    return () => {
-      document.removeEventListener('fullscreenchange', sync);
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    };
-  }, []);
   const { view: game, rolling } = useRollReveal(gameState);
   useGameFeedback(game, rolling, user?.id);
 
@@ -67,10 +73,19 @@ export default function GameView() {
     return () => clearTimeout(timer);
   }, [mustRoll, sendAction]);
 
+  // Messages count as read while the chat tab is open
+  const readingChat = drawerOpen && tab === 'chat';
+  if (readingChat && seenChat !== chat.length) setSeenChat(chat.length);
+
   if (!room || !user || !board || !game) {
-    return <div className="card"><h2>🎲 Carregando tabuleiro...</h2></div>;
+    return (
+      <div className="game-shell">
+        <div className="world-loading"><span className="spinner" />Carregando o mapa…</div>
+      </div>
+    );
   }
 
+  const flat = settings.view === '2d';
   const nameOf = (id: string) => room.players.find(p => p.user_id === id)?.username ?? '?';
   // "Você" for the viewer, the player's name otherwise
   const who = (id: string, capitalized = true) => id === user.id ? (capitalized ? 'Você' : 'você') : nameOf(id);
@@ -82,6 +97,8 @@ export default function GameView() {
     canBuyDevCard: false, devCardsToPlay: [],
   };
   const spots: Record<BuildKind, string[]> = { road: legal.roads, settlement: legal.settlements, city: legal.cities };
+  const canTrade = isMyTurn && game.step === 'main' && !!legal.bankRatios && !!me.resources;
+  const unread = Math.max(0, chat.length - seenChat);
 
   // During setup the step decides what to place; afterwards the player picks what to build
   let mode: BuildKind | null = null;
@@ -127,7 +144,7 @@ export default function GameView() {
         return isMyTurn ? 'Sua vez: role os dados ou jogue uma carta' : `Vez de ${current}: aguardando os dados`;
       default:
         if (!isMyTurn) return `Vez de ${current}`;
-        return mode ? `Escolha no tabuleiro onde construir: ${BUILD_LABELS[mode].toLowerCase()}` : 'Sua vez: construa ou passe a vez';
+        return mode ? `Escolha no mapa onde construir: ${BUILD_LABELS[mode].toLowerCase()}` : 'Sua vez: construa, troque ou passe a vez';
     }
   })();
 
@@ -148,205 +165,235 @@ export default function GameView() {
     onEdgeClick: (edgeKey: string) => act({ type: 'build_road', edgeKey }),
     onHexClick: (hexKey: string) => act({ type: 'move_robber', hexKey }),
   };
-  const toggleBoard = () => {
-    setFlat(!flat);
-    try {
-      localStorage.setItem(BOARD_MODE_KEY, flat ? '0' : '1');
-    } catch { /* not remembered */ }
-  };
-
-  const toggleBrowserFullscreen = () => {
-    const change = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-    change.catch(() => {}); // the browser may refuse; the game just stays as it is
-  };
 
   const needsMe = isMyTurn || myDiscard > 0 || game.phase === 'finished';
-  const showTurnPanel = robberyText || (isMyTurn && (game.step === 'roll' || game.step === 'main'));
+  const openTab = (next: Tab) => {
+    setTab(next);
+    setDrawerOpen(true);
+  };
 
   return (
-    <div className={`game-layout ${maximized || browserFullscreen ? 'fullscreen' : ''}`}>
-      <div className="game-main">
-        <div className="status-row">
-          <div className={`status-bar ${needsMe ? 'highlight' : ''}`} role="status">
-            {rolling ? '🎲 Rolando os dados…' : status}
-          </div>
-          <button className="sound-toggle btn-secondary board-toggle" onClick={toggleBoard}
-            title={flat ? 'Mudar para o tabuleiro 3D' : 'Mudar para o tabuleiro 2D'}>
-            {flat ? '3D' : '2D'}
-          </button>
-          <button className="sound-toggle btn-secondary board-toggle" onClick={() => setShowHelp(true)}
-            aria-label="Como jogar" title="Como jogar">?</button>
-          <SoundToggle />
-          {!browserFullscreen && (
-            <button className="sound-toggle btn-secondary" onClick={() => setMaximized(!maximized)}
-              aria-label={maximized ? 'Restaurar tamanho' : 'Maximizar o jogo na janela'}
-              title={maximized ? 'Restaurar tamanho' : 'Maximizar o jogo na janela'}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden>
-                {maximized
-                  ? <path d="M5 5V2h9v9h-3M2 5h9v9H2z" />
-                  : <path d="M2 2h12v12H2zM2 5h12" />}
-              </svg>
-            </button>
-          )}
-          {document.fullscreenEnabled && (
-            <button className="sound-toggle btn-secondary" onClick={toggleBrowserFullscreen}
-              aria-label={browserFullscreen ? 'Sair da tela cheia' : 'Tela cheia do navegador'}
-              title={browserFullscreen ? 'Sair da tela cheia' : 'Tela cheia do navegador'}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                {browserFullscreen
-                  ? <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
-                  : <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />}
-              </svg>
-            </button>
-          )}
-        </div>
-        <div className="board-area">
-          {flat ? <Board {...boardProps} /> : (
-            <Suspense fallback={<div className="board3d-loading">Carregando tabuleiro 3D…</div>}>
-              <Board3D {...boardProps} rolling={rolling} />
-            </Suspense>
-          )}
-          {game.phase !== 'setup' && <Dice dice={game.dice} rolling={rolling} sumOnly={!flat} />}
-        </div>
-      </div>
+    <div className="game-shell">
+      {flat ? (
+        <div className="board2d-stage"><Board {...boardProps} /></div>
+      ) : (
+        <Suspense fallback={<div className="world-loading"><span className="spinner" />Carregando o mapa 3D…</div>}>
+          <Board3D {...boardProps} rolling={rolling} padding={padding} />
+        </Suspense>
+      )}
 
-      <aside className="game-side">
-        {myDiscard > 0 && me.resources && (
-          <DiscardPanel key={myDiscard} hand={me.resources} owed={myDiscard}
-            onConfirm={resources => act({ type: 'discard', resources })} />
-        )}
-
-        {game.tradeOffer && !isMyTurn && me.resources && (
-          <IncomingOffer offer={game.tradeOffer} fromName={nameOf(game.currentPlayerId)}
-            myId={user.id} hand={me.resources} act={act} />
-        )}
-
-        {legal.victims.length > 0 && (
-          <section className="panel panel-alert">
-            <h3>Roubar de quem?</h3>
-            <div className="victims">
-              {legal.victims.map(id => (
-                <button key={id} className="wide victim-btn" onClick={() => act({ type: 'steal', victimId: id })}>
-                  <span className="color-dot" style={{ backgroundColor: game.players[id].color }} />
-                  {nameOf(id)} · 🃏 {game.players[id].resourceCount}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="panel">
-          <h3>Jogadores</h3>
+      <div className={`hud ${drawerOpen ? 'drawer-open' : 'drawer-closed'}`}>
+        {/* ---- Players (top left) ---- */}
+        <section className="hud-players glass" aria-label="Jogadores">
+          <header className="hud-brand">
+            <span className="brand-mark" aria-hidden>⬢</span>
+            <strong>Catan dos Crias</strong>
+            <span className="room-code" title="Código da sala">{room.code}</span>
+          </header>
           <ul className="score-list">
             {game.playerOrder.map(id => {
               const p = game.players[id];
               const left = game.bots.includes(id);
               const offline = !left && room.players.find(rp => rp.user_id === id)?.online === false;
+              const current = id === game.currentPlayerId && game.phase !== 'finished';
               return (
-                <li key={id} className={id === game.currentPlayerId && game.phase !== 'finished' ? 'current' : ''}>
-                  <div className="player-row">
-                    <span className="color-dot" style={{ backgroundColor: p.color }} />
+                <li key={id} className={current ? 'current' : ''} style={{ '--player': p.color } as CSSProperties}>
+                  <span className="color-dot" style={{ backgroundColor: p.color }} />
+                  <div className="player-main">
                     <span className={`player-name ${left || offline ? 'away' : ''}`}>
-                      {nameOf(id)}{id === user.id && ' (você)'}
-                      {left && <span className="presence"> · 🤖 bot</span>}
+                      {nameOf(id)}{id === user.id && <span className="you"> (você)</span>}
+                      {left && <span className="presence"> · bot</span>}
                       {offline && <span className="presence"> · offline</span>}
                     </span>
-                    <span title="Pontos de vitória">⭐ {p.victoryPoints}</span>
-                    <span title="Cartas de recurso na mão" data-cards-of={id}>🃏 {p.resourceCount}</span>
-                    <span title="Cartas de desenvolvimento">📜 {p.devCardCount}</span>
+                    <span className="player-stats">
+                      <span title="Cartas de recurso na mão" data-cards-of={id}>🃏 {p.resourceCount}</span>
+                      <span title="Cartas de desenvolvimento">📜 {p.devCardCount}</span>
+                      <span title="Cavaleiros jogados">⚔️ {p.knightsPlayed}</span>
+                      <span title="Maior estrada contínua">🛤️ {p.roadLength}</span>
+                    </span>
+                    {(game.largestArmyHolder === id || game.longestRoadHolder === id) && (
+                      <span className="awards">
+                        {game.largestArmyHolder === id && <span className="award">Maior Exército</span>}
+                        {game.longestRoadHolder === id && <span className="award">Maior Estrada</span>}
+                      </span>
+                    )}
                   </div>
-                  <div className="player-extra">
-                    <span title="Cavaleiros jogados">⚔️ {p.knightsPlayed}</span>
-                    <span title="Maior estrada contínua">🛣️ {p.roadLength}</span>
-                    {game.largestArmyHolder === id && <span className="award">Maior Exército +2</span>}
-                    {game.longestRoadHolder === id && <span className="award">Maior Estrada +2</span>}
-                  </div>
+                  <span className="vp" title="Pontos de vitória"><strong>{p.victoryPoints}</strong><small>pts</small></span>
                 </li>
               );
             })}
           </ul>
         </section>
 
-        {game.phase !== 'setup' && showTurnPanel && (
-          <section className="panel">
-            <h3>Turno</h3>
-            {robberyText && <p className="robbery">🥷 {robberyText}</p>}
+        {/* ---- Status (top center) ---- */}
+        <div className="hud-status">
+          <div className={`status-pill glass ${needsMe ? 'highlight' : ''}`} role="status">
+            <span className="color-dot" style={{ backgroundColor: game.players[game.currentPlayerId]?.color }} />
+            <span>{rolling ? 'Rolando os dados…' : status}</span>
+          </div>
+          {game.phase !== 'setup' && <Dice dice={game.dice} rolling={rolling} />}
+        </div>
 
-            {isMyTurn && game.step === 'roll' && (
-              <button className="wide" disabled={rolling} onClick={() => act({ type: 'roll_dice' })}>
-                {rolling ? '🎲 Rolando…' : '🎲 Rolar dados'}
-              </button>
-            )}
-            {isMyTurn && game.step === 'main' && (
-              <div className="actions">
-                {BUILD_KINDS.map(kind => (
-                  <button key={kind}
-                    className={`build-btn ${buildMode === kind ? 'active' : ''}`}
-                    aria-pressed={buildMode === kind}
-                    disabled={spots[kind].length === 0}
-                    title={spots[kind].length === 0 ? 'Sem recursos, peças ou lugar disponível' : undefined}
-                    onClick={() => setBuildMode(buildMode === kind ? null : kind)}>
-                    <span>{BUILD_LABELS[kind]}</span>
-                    <span className="cost">{costText(kind)}</span>
+        {/* ---- Map controls (top right / right edge) ---- */}
+        <div className="hud-toolbar">
+          <MapToolbar onHelp={() => setShowHelp(true)} sound>
+            <button className={`icon-btn ${drawerOpen ? 'on' : ''}`} onClick={() => setDrawerOpen(!drawerOpen)}
+              aria-label={drawerOpen ? 'Fechar painel' : 'Abrir painel'} title={drawerOpen ? 'Fechar painel' : 'Abrir painel'}
+              aria-expanded={drawerOpen}>
+              <PanelIcon />
+              {!drawerOpen && unread > 0 && <span className="badge-dot" />}
+            </button>
+          </MapToolbar>
+        </div>
+        {!flat && <div className="hud-nav"><MapNav /></div>}
+
+        {/* ---- Things that need an answer (center) ---- */}
+        <div className="hud-alerts">
+          {game.phase === 'finished' && (
+            <section className="panel panel-alert finish">
+              <h3>Fim de jogo</h3>
+              <p className="finish-title">🏆 {who(game.winnerId!)} venceu a partida!</p>
+              <button className="wide" onClick={() => leaveRoom().catch(() => {})}>Voltar ao lobby</button>
+            </section>
+          )}
+          {myDiscard > 0 && me.resources && (
+            <DiscardPanel key={myDiscard} hand={me.resources} owed={myDiscard}
+              onConfirm={resources => act({ type: 'discard', resources })} />
+          )}
+          {game.tradeOffer && !isMyTurn && me.resources && (
+            <IncomingOffer offer={game.tradeOffer} fromName={nameOf(game.currentPlayerId)}
+              myId={user.id} hand={me.resources} act={act} />
+          )}
+          {legal.victims.length > 0 && (
+            <section className="panel panel-alert">
+              <h3>Roubar de quem?</h3>
+              <div className="victims">
+                {legal.victims.map(id => (
+                  <button key={id} className="victim-btn btn-secondary" onClick={() => act({ type: 'steal', victimId: id })}>
+                    <span className="color-dot" style={{ backgroundColor: game.players[id].color }} />
+                    {nameOf(id)} <span className="muted">· 🃏 {game.players[id].resourceCount}</span>
                   </button>
                 ))}
-                <button className="build-btn" disabled={!legal.canBuyDevCard}
-                  title={legal.canBuyDevCard ? undefined : 'Sem recursos ou baralho vazio'}
-                  onClick={() => act({ type: 'buy_dev_card' })}>
-                  <span>Carta</span>
-                  <span className="cost">{costText('devCard')}</span>
-                </button>
-                <button className="wide btn-secondary" onClick={() => act({ type: 'end_turn' })}>Passar a vez ➜</button>
               </div>
-            )}
-          </section>
-        )}
+            </section>
+          )}
+          {robberyText && <p key={robberyText + game.rollCount} className="robbery-note glass">🥷 {robberyText}</p>}
+        </div>
 
-        {me?.resources && (
-          <section className="panel">
-            <h3>Sua mão</h3>
-            <div className="hand">
+        {/* ---- Side drawer: trade, cards, chat, dice stats ---- */}
+        <aside className="hud-drawer glass" aria-label="Painel" hidden={!drawerOpen}>
+          <div className="drawer-tabs" role="tablist">
+            {TABS.map(t => (
+              <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''}
+                onClick={() => setTab(t.id)}>
+                {t.label}
+                {t.id === 'chat' && unread > 0 && <span className="badge">{unread}</span>}
+                {t.id === 'trade' && canTrade && tab !== 'trade' && <span className="badge-dot" />}
+                {t.id === 'cards' && me.devCardCount > 0 && <span className="badge soft">{me.devCardCount}</span>}
+              </button>
+            ))}
+            <button className="icon-btn drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fechar painel"><CloseIcon /></button>
+          </div>
+          <div className="drawer-body">
+            <div role="tabpanel" hidden={tab !== 'trade'}>
+              {canTrade ? (
+                <TradePanel hand={me.resources!} bank={game.bank} bankRatios={legal.bankRatios!} offer={game.tradeOffer}
+                  opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
+              ) : (
+                <p className="empty-state">O comércio abre na sua vez, depois de rolar os dados: com o banco (4:1), pelos portos que você ocupa (3:1 e 2:1) e com os outros jogadores.</p>
+              )}
+            </div>
+            <div role="tabpanel" hidden={tab !== 'cards'}>
+              {me.devCards && me.newDevCards && me.devCardCount > 0 ? (
+                <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
+                  alreadyPlayed={isMyTurn && game.devCardPlayed} bank={game.bank} act={act} />
+              ) : (
+                <p className="empty-state">Você ainda não tem cartas de desenvolvimento. Compre uma por 🐑 🌾 ⛰️ na sua vez.</p>
+              )}
+              <p className="muted deck-count">{game.devDeckCount} cartas no baralho</p>
+            </div>
+            <div role="tabpanel" hidden={tab !== 'chat'}>
+              <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
+            </div>
+            <div role="tabpanel" hidden={tab !== 'stats'}>
+              <RollStats stats={game.rollStats} lastSum={game.dice ? game.dice[0] + game.dice[1] : null} />
+            </div>
+          </div>
+          {game.phase !== 'finished' && (
+            <footer className="drawer-footer">
+              {confirmingLeave ? (
+                <div className="leave-confirm">
+                  <p>Sair da partida? Um bot assume o seu lugar, com suas cartas e construções, e não dá para voltar.</p>
+                  <div className="offer-actions">
+                    <button className="btn-danger" onClick={() => leaveRoom().catch(() => {})}>Sair</button>
+                    <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="link-btn leave-btn" onClick={() => setConfirmingLeave(true)}><ExitIcon /> Sair da partida</button>
+              )}
+            </footer>
+          )}
+        </aside>
+
+        {/* ---- Dock: hand and actions (bottom center) ---- */}
+        <div className="hud-dock glass">
+          {me.resources && (
+            <div className="hand" aria-label="Sua mão">
               {RESOURCE_ORDER.map(r => (
-                <div key={r} className="hand-card" title={RESOURCE_INFO[r].label} data-hand={r}>
-                  <span className="hand-emoji">{RESOURCE_INFO[r].emoji}</span>
-                  <strong>{me.resources![r]}</strong>
+                <div key={r} className={`res-card res-${r} ${me.resources![r] === 0 ? 'empty' : ''}`}
+                  title={RESOURCE_INFO[r].label} data-hand={r}>
+                  <span className="res-emoji" aria-hidden>{RESOURCE_INFO[r].emoji}</span>
+                  <strong aria-label={`${me.resources![r]} ${RESOURCE_INFO[r].label}`}>{me.resources![r]}</strong>
                 </div>
               ))}
             </div>
-            <p className="muted pieces">
-              Peças: {me.piecesLeft.road} estradas · {me.piecesLeft.settlement} aldeias · {me.piecesLeft.city} cidades
-              {game.phase !== 'setup' && <> · {game.devDeckCount} cartas no baralho</>}
-            </p>
-          </section>
-        )}
-
-        {me.devCards && me.newDevCards && me.devCardCount > 0 && (
-          <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
-            alreadyPlayed={isMyTurn && game.devCardPlayed} bank={game.bank} act={act} />
-        )}
-
-        {isMyTurn && game.step === 'main' && legal.bankRatios && me.resources && (
-          <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
-            opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
-        )}
-        {game.phase !== 'setup' && <RollStats stats={game.rollStats} lastSum={game.dice ? game.dice[0] + game.dice[1] : null} />}
-        <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
-        <section className="panel leave-panel">
-          {game.phase === 'finished' ? (
-            <button className="wide btn-secondary" onClick={() => leaveRoom().catch(() => {})}>Voltar ao lobby</button>
-          ) : confirmingLeave ? (
-            <>
-              <p>Sair da partida? Um bot assume o seu lugar, com suas cartas e construções, e não dá para voltar.</p>
-              <div className="offer-actions">
-                <button onClick={() => leaveRoom().catch(() => {})}>Sair</button>
-                <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
-              </div>
-            </>
-          ) : (
-            <button className="wide btn-secondary" onClick={() => setConfirmingLeave(true)}>Sair da partida</button>
           )}
-        </section>
-      </aside>
+
+          {isMyTurn && game.step === 'roll' && (
+            <div className="dock-actions">
+              {legal.devCardsToPlay.length > 0 && (
+                <button className="btn-secondary" onClick={() => openTab('cards')}>📜 Jogar carta</button>
+              )}
+              <button className="primary-action" disabled={rolling} onClick={() => act({ type: 'roll_dice' })}>
+                🎲 {rolling ? 'Rolando…' : 'Rolar dados'}
+              </button>
+            </div>
+          )}
+
+          {isMyTurn && game.step === 'main' && (
+            <div className="dock-actions">
+              {BUILD_KINDS.map(kind => (
+                <button key={kind}
+                  className={`build-btn ${buildMode === kind ? 'active' : ''}`}
+                  aria-pressed={buildMode === kind}
+                  disabled={spots[kind].length === 0}
+                  title={spots[kind].length === 0
+                    ? 'Sem recursos, peças ou lugar disponível'
+                    : `${BUILD_LABELS[kind]} · ${me.piecesLeft[kind]} peças restantes`}
+                  onClick={() => setBuildMode(buildMode === kind ? null : kind)}>
+                  <span className="build-icon" aria-hidden>{BUILD_ICONS[kind]}</span>
+                  <span className="build-label">{BUILD_LABELS[kind]}</span>
+                  <Cost kind={kind} />
+                  <span className="pieces-left" aria-hidden>{me.piecesLeft[kind]}</span>
+                </button>
+              ))}
+              <button className="build-btn" disabled={!legal.canBuyDevCard}
+                title={legal.canBuyDevCard ? 'Comprar carta de desenvolvimento' : 'Sem recursos ou baralho vazio'}
+                onClick={() => act({ type: 'buy_dev_card' })}>
+                <span className="build-icon" aria-hidden>{BUILD_ICONS.devCard}</span>
+                <span className="build-label">Carta</span>
+                <Cost kind="devCard" />
+              </button>
+              <button className="primary-action" onClick={() => act({ type: 'end_turn' })}>Passar a vez ➜</button>
+            </div>
+          )}
+        </div>
+
+        {flat && (
+          <button className="view-switch glass" onClick={() => updateGraphics({ view: '3d' })}>Voltar ao mapa 3D</button>
+        )}
+      </div>
       {showHelp && <HelpDialog onClose={() => setShowHelp(false)} />}
     </div>
   );

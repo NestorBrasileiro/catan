@@ -24,10 +24,9 @@ function Die({ value, color }: { value: number; color: 'red' | 'yellow' }) {
 interface DiceProps {
   dice: [number, number] | null;
   rolling: boolean;
-  sumOnly?: boolean; // the 3D board rolls its own dice in the scene
 }
 
-export default function Dice({ dice, rolling, sumOnly = false }: DiceProps) {
+export default function Dice({ dice, rolling }: DiceProps) {
   const [faces, setFaces] = useState<[number, number]>(() => [randomFace(), randomFace()]);
 
   useEffect(() => {
@@ -42,8 +41,8 @@ export default function Dice({ dice, rolling, sumOnly = false }: DiceProps) {
   const sum = shown[0] + shown[1];
   return (
     <div className={`dice-tray ${rolling ? 'rolling' : 'landed'}`} role="status">
-      {!sumOnly && <Die value={shown[0]} color="red" />}
-      {!sumOnly && <Die value={shown[1]} color="yellow" />}
+      <Die value={shown[0]} color="red" />
+      <Die value={shown[1]} color="yellow" />
       {!rolling && <span className={`dice-sum ${sum === 7 ? 'seven' : ''}`} aria-hidden>{sum}</span>}
       <span className="sr-only">{rolling ? 'Rolando os dados' : `Dados: ${shown[0]} e ${shown[1]}, soma ${sum}`}</span>
     </div>
