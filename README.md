@@ -69,7 +69,8 @@ npm test
 Referência de regras e interface: Catan base oficial, como no Board Game Arena. De 2 a 6 jogadores: com 5 ou 6 a partida usa a ilha da expansão.
 
 - ✅ Lobby: registo, criar sala (2–6 jogadores), entrar por código, iniciar
-- ✅ Bots na sala de espera: o anfitrião preenche lugares vazios com bots (e tira com ✕); eles jogam desde a fundação, então dá para testar sozinho, inclusive com 6 jogadores
+- ✅ Bots: escolha quantos ao criar a sala, use "Treinar contra 3 bots" no menu, ou preencha vagas com "+ Bot" na sala de espera (e tire com ✕); eles jogam desde a fundação, então dá para testar sozinho, inclusive com 6 jogadores
+- ✅ Registro em tempo real: painel fixo abaixo da barra superior com cada ação da partida (fundação, dados, produção de cada jogador, ladrão, roubos, trocas, cartas, prêmios, vitória), com horário. A carta roubada só aparece para o ladrão e a vítima
 - ✅ 5–6 jogadores (expansão): ilha de 30 hexágonos em fileiras de 3-4-5-6-5-4-3, 2 desertos, 28 fichas, 11 portos (um 3:1 e um de ovelha a mais), banco com 24 cartas de cada recurso, 34 cartas de desenvolvimento (20 cavaleiros) e as cores verde e marrom. A fase especial de construção entre os turnos ainda não existe
 - ✅ Tabuleiro aleatório oficial: 19 hexágonos, 9 portos, 6 e 8 nunca vizinhos, ladrão no deserto
 - ✅ Fundação: ordem sorteada, serpente (1-2-3-4, 4-3-2-1), regra de distância, recursos da 2ª aldeia
@@ -101,7 +102,7 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 |---|---|---|
 | `register` | `{ username }` | `{ ok, user: { id, username }, token }` |
 | `resume` | `{ token }` | `{ ok, user, inRoom }` (e reenvia sala, tabuleiro e estado do jogo) |
-| `create_room` | `{ maxPlayers (2–4), turnTimer (30–600) }` | `{ ok, room }` |
+| `create_room` | `{ maxPlayers (2–6), turnTimer (30–600), bots? (0 a maxPlayers−1) }` | `{ ok, room }` |
 | `join_room` | `{ code }` | `{ ok, room }` |
 | `leave_room` | `{}` (sala de espera: libera o lugar; partida: desiste) | `{ ok }` |
 | `chat_message` | `{ text }` (até 300 caracteres) | `{ ok }` |
@@ -116,4 +117,4 @@ Todos respondem por ack com `{ ok: true, ... }` ou `{ error }`.
 |---|---|
 | `room_state_updated` | `{ id, code, hostId, maxPlayers, turnTimer, status, players[] }` (cada jogador com `online` e `bot`) |
 | `board_generated` | `{ hexes, ports, vertices, edges }` (uma vez, ao iniciar) |
-| `game_state_update` | visão do jogo para aquele jogador: mão própria, só a contagem de cartas dos outros, e as jogadas válidas (`legal`) se for a vez dele. `rollCount` e `lastProduction` (`{ id, gains: [{ hexKey, userId, resource, amount }] }`) dizem ao cliente quando animar os dados e as cartas |
+| `game_state_update` | visão do jogo para aquele jogador: mão própria, só a contagem de cartas dos outros, e as jogadas válidas (`legal`) se for a vez dele. `rollCount` e `lastProduction` (`{ id, gains: [{ hexKey, userId, resource, amount }] }`) dizem ao cliente quando animar os dados e as cartas; `log` traz as últimas 150 linhas do registro (`{ id, at, userId, event }`) |

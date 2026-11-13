@@ -13,15 +13,16 @@ function useViewport() {
 
 // How much of the screen the floating panels cover, so the 3D camera frames the island in the rest
 // (keep in sync with the HUD grid in GameView.css and the lobby layout in App.css)
-export function useHudPadding(screen: 'game' | 'lobby', drawerOpen = false): ViewPadding {
+export function useHudPadding(screen: 'game' | 'lobby'): ViewPadding {
   const { width } = useViewport();
   return useMemo(() => {
     const phone = width <= 760;
     if (screen === 'lobby') {
       return phone ? { top: 60, right: 0, bottom: 300, left: 0 } : { top: 40, right: 0, bottom: 0, left: Math.min(560, width * 0.4) };
     }
-    if (phone) return { top: 190, right: 56, bottom: 150, left: 0 };
-    const drawer = width <= 1180 ? 320 : 360;
-    return { top: 64, right: drawerOpen ? drawer + 28 : 56, bottom: 104, left: 90 };
-  }, [screen, drawerOpen, width]);
+    if (phone) return { top: 230, right: 56, bottom: 150, left: 0 };
+    // the right column always holds the log; the drawer below it only makes it taller
+    const side = width <= 1180 ? 320 : 360;
+    return { top: 64, right: side + 28, bottom: 104, left: 90 };
+  }, [screen, width]);
 }

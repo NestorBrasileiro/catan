@@ -95,6 +95,35 @@ export interface TradeOffer {
   responses: Record<string, 'accepted' | 'declined'>;
 }
 
+// One line of the game's log (mirrors backend LogEntry)
+export type LogEvent =
+  | { type: 'place_settlement' | 'build_settlement' | 'build_city'; vertexKey: string }
+  | { type: 'place_road' | 'build_road' | 'free_road'; edgeKey: string }
+  | { type: 'roll'; dice: [number, number] }
+  | { type: 'produce'; gains: { userId: string; resource: ResourceType; amount: number }[] }
+  | { type: 'discard'; count: number }
+  | { type: 'robber'; hexKey: string }
+  | { type: 'steal'; victimId: string; resource: ResourceType | null }
+  | { type: 'bank_trade'; give: ResourceType; amount: number; get: ResourceType }
+  | { type: 'offer'; give: Resources; get: Resources }
+  | { type: 'offer_answer'; accepted: boolean }
+  | { type: 'trade'; partnerId: string; give: Resources; get: Resources }
+  | { type: 'offer_cancel' }
+  | { type: 'buy_dev_card' }
+  | { type: 'play_card'; card: PlayableDevCard; resources?: ResourceType[]; resource?: ResourceType; taken?: number }
+  | { type: 'award'; award: 'largest_army' | 'longest_road'; lost: string | null }
+  | { type: 'end_turn' }
+  | { type: 'win'; points: number }
+  | { type: 'left' }
+  | { type: 'start'; firstId: string };
+
+export interface LogEntry {
+  id: number;
+  at: number;
+  userId: string | null;
+  event: LogEvent;
+}
+
 export interface GameView {
   phase: GamePhase;
   step: TurnStep;
@@ -130,6 +159,7 @@ export interface GameView {
     canBuyDevCard: boolean;
     devCardsToPlay: PlayableDevCard[];
   } | null;
+  log: LogEntry[]; // newest last
 }
 
 export const RESOURCE_ORDER: ResourceType[] = ['wood', 'brick', 'wool', 'wheat', 'ore'];

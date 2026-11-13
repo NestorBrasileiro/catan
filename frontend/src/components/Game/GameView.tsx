@@ -11,6 +11,7 @@ import ChatPanel from './ChatPanel';
 import Dice from './Dice';
 import DevCardsPanel from './DevCardsPanel';
 import DiscardPanel from './DiscardPanel';
+import GameLog from './GameLog';
 import HelpDialog from './HelpDialog';
 import RollStats from './RollStats';
 import IncomingOffer from './IncomingOffer';
@@ -58,7 +59,7 @@ export default function GameView() {
   const [drawerOpen, setDrawerOpen] = useState(() => !isPhone());
   const [seenChat, setSeenChat] = useState(chat.length);
   const [tradeOpen, setTradeOpen] = useState(false);
-  const padding = useHudPadding('game', drawerOpen);
+  const padding = useHudPadding('game');
 
   const { view: game, rolling } = useRollReveal(gameState);
   useGameFeedback(game, rolling, user?.id);
@@ -278,52 +279,56 @@ export default function GameView() {
           {robberyText && <p key={robberyText + game.rollCount} className="robbery-note glass">🥷 {robberyText}</p>}
         </div>
 
-        {/* ---- Side drawer: trade, cards, chat, dice stats ---- */}
-        <aside className="hud-drawer glass" aria-label="Painel" hidden={!drawerOpen}>
-          <div className="drawer-tabs" role="tablist">
-            {TABS.map(t => (
-              <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''}
-                onClick={() => setTab(t.id)}>
-                {t.label}
-                {t.id === 'chat' && unread > 0 && <span className="badge">{unread}</span>}
-                {t.id === 'cards' && me.devCardCount > 0 && <span className="badge soft">{me.devCardCount}</span>}
-              </button>
-            ))}
-            <button className="icon-btn drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fechar painel"><CloseIcon /></button>
-          </div>
-          <div className="drawer-body">
-            <div role="tabpanel" hidden={tab !== 'cards'}>
-              {me.devCards && me.newDevCards && me.devCardCount > 0 ? (
-                <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
-                  alreadyPlayed={isMyTurn && game.devCardPlayed} bank={game.bank} act={act} />
-              ) : (
-                <p className="empty-state">Você ainda não tem cartas de desenvolvimento. Compre uma por 🐑 🌾 ⛰️ na sua vez.</p>
-              )}
-              <p className="muted deck-count">{game.devDeckCount} cartas no baralho</p>
+        {/* ---- Right column: the live log under the toolbar, then the drawer (cards, chat, dice stats) ---- */}
+        <div className="hud-side">
+          <GameLog log={game.log ?? []} board={board} myId={user.id} nameOf={nameOf}
+            colorOf={id => game.players[id]?.color ?? '#eee'} />
+          <aside className="hud-drawer glass" aria-label="Painel" hidden={!drawerOpen}>
+            <div className="drawer-tabs" role="tablist">
+              {TABS.map(t => (
+                <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''}
+                  onClick={() => setTab(t.id)}>
+                  {t.label}
+                  {t.id === 'chat' && unread > 0 && <span className="badge">{unread}</span>}
+                  {t.id === 'cards' && me.devCardCount > 0 && <span className="badge soft">{me.devCardCount}</span>}
+                </button>
+              ))}
+              <button className="icon-btn drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fechar painel"><CloseIcon /></button>
             </div>
-            <div role="tabpanel" hidden={tab !== 'chat'}>
-              <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
+            <div className="drawer-body">
+              <div role="tabpanel" hidden={tab !== 'cards'}>
+                {me.devCards && me.newDevCards && me.devCardCount > 0 ? (
+                  <DevCardsPanel cards={me.devCards} newCards={me.newDevCards} playable={legal.devCardsToPlay}
+                    alreadyPlayed={isMyTurn && game.devCardPlayed} bank={game.bank} act={act} />
+                ) : (
+                  <p className="empty-state">Você ainda não tem cartas de desenvolvimento. Compre uma por 🐑 🌾 ⛰️ na sua vez.</p>
+                )}
+                <p className="muted deck-count">{game.devDeckCount} cartas no baralho</p>
+              </div>
+              <div role="tabpanel" hidden={tab !== 'chat'}>
+                <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
+              </div>
+              <div role="tabpanel" hidden={tab !== 'stats'}>
+                <RollStats stats={game.rollStats} lastSum={game.dice ? game.dice[0] + game.dice[1] : null} />
+              </div>
             </div>
-            <div role="tabpanel" hidden={tab !== 'stats'}>
-              <RollStats stats={game.rollStats} lastSum={game.dice ? game.dice[0] + game.dice[1] : null} />
-            </div>
-          </div>
-          {game.phase !== 'finished' && (
-            <footer className="drawer-footer">
-              {confirmingLeave ? (
-                <div className="leave-confirm">
-                  <p>Sair da partida? Um bot assume o seu lugar, com suas cartas e construções, e não dá para voltar.</p>
-                  <div className="offer-actions">
-                    <button className="btn-danger" onClick={() => leaveRoom().catch(() => {})}>Sair</button>
-                    <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
+            {game.phase !== 'finished' && (
+              <footer className="drawer-footer">
+                {confirmingLeave ? (
+                  <div className="leave-confirm">
+                    <p>Sair da partida? Um bot assume o seu lugar, com suas cartas e construções, e não dá para voltar.</p>
+                    <div className="offer-actions">
+                      <button className="btn-danger" onClick={() => leaveRoom().catch(() => {})}>Sair</button>
+                      <button className="btn-secondary" onClick={() => setConfirmingLeave(false)}>Ficar</button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <button className="link-btn leave-btn" onClick={() => setConfirmingLeave(true)}><ExitIcon /> Sair da partida</button>
-              )}
-            </footer>
-          )}
-        </aside>
+                ) : (
+                  <button className="link-btn leave-btn" onClick={() => setConfirmingLeave(true)}><ExitIcon /> Sair da partida</button>
+                )}
+              </footer>
+            )}
+          </aside>
+        </div>
 
         {/* ---- Bottom center: trade floating over the dock, then the dock with the hand and actions ---- */}
         <div className="hud-bottom">

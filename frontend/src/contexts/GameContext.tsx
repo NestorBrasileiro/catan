@@ -115,8 +115,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, [call]);
 
-  const createRoom = useCallback(async (maxPlayers: number, turnTimer: number) => {
-    await call('create_room', { maxPlayers, turnTimer });
+  const createRoom = useCallback(async (maxPlayers: number, turnTimer: number, bots = 0) => {
+    await call('create_room', { maxPlayers, turnTimer, bots });
   }, [call]);
 
   const joinRoom = useCallback(async (code: string) => {

@@ -41,7 +41,7 @@ export interface GameContextType {
   connected: boolean;
   resuming: boolean; // reconnecting a saved session
   register: (username: string) => Promise<void>;
-  createRoom: (maxPlayers: number, turnTimer: number) => Promise<void>;
+  createRoom: (maxPlayers: number, turnTimer: number, bots?: number) => Promise<void>;
   joinRoom: (code: string) => Promise<void>;
   leaveRoom: () => Promise<void>;
   startGame: () => Promise<void>;

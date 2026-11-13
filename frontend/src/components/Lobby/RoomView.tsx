@@ -35,8 +35,8 @@ export default function RoomView() {
         {Array.from({ length: empty }, (_, i) => (
           <li key={`empty-${i}`} className="empty">
             Aguardando jogador…
-            {isHost && i === 0 && (
-              <button className="btn-secondary add-bot" onClick={() => addBot().catch(() => {})}>+ Adicionar bot</button>
+            {isHost && (
+              <button className="btn-secondary add-bot" onClick={() => addBot().catch(() => {})}>+ Bot</button>
             )}
           </li>
         ))}

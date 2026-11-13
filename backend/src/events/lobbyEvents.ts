@@ -79,6 +79,25 @@ function hostsWaitingRoom(userId: string | undefined, roomId: string | undefined
   return room;
 }
 
+// Gives an empty seat to the computer: a user with no session token, a name nobody in the room has,
+// and the next free color
+function addBotSeat(roomId: string, maxPlayers: number): string | null {
+  const db = getDb();
+  const players = db.prepare('SELECT * FROM room_players WHERE room_id = ?').all(roomId) as RoomPlayer[];
+  if (players.length >= maxPlayers) return 'Sala cheia.';
+
+  const usedColors = players.map(p => p.color);
+  const color = PLAYER_COLORS.find(c => !usedColors.includes(c))!;
+  const taken = new Set((db.prepare(`
+    SELECT u.username FROM room_players rp JOIN users u ON u.id = rp.user_id WHERE rp.room_id = ?
+  `).all(roomId) as { username: string }[]).map(u => u.username));
+  const name = BOT_NAMES.find(n => !taken.has(n)) ?? `Bot ${players.length + 1}`;
+  const id = BOT_ID_PREFIX + nanoid(10);
+  db.prepare('INSERT INTO users (id, username, token_hash) VALUES (?, ?, NULL)').run(id, name);
+  db.prepare('INSERT INTO room_players (room_id, user_id, color) VALUES (?, ?, ?)').run(roomId, id, color);
+  return null;
+}
+
 function cancelPendingRemoval(userId: string) {
   clearTimeout(pendingRemovals.get(userId));
   pendingRemovals.delete(userId);
@@ -133,7 +152,7 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
   });
 
   // Create room
-  onEvent<{ maxPlayers: number; turnTimer: number }>(socket, 'create_room', (data, reply) => {
+  onEvent<{ maxPlayers: number; turnTimer: number; bots?: number }>(socket, 'create_room', (data, reply) => {
     const { userId } = socket.data;
     if (!userId) return reply({ error: 'Registe-se primeiro.' });
     if (socket.data.roomId) return reply({ error: 'Você já está numa sala.' });
@@ -146,6 +165,8 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     if (!isIntInRange(turnTimer, MIN_TURN_TIMER, MAX_TURN_TIMER)) {
       return reply({ error: `Tempo por turno deve ser entre ${MIN_TURN_TIMER} e ${MAX_TURN_TIMER} segundos.` });
     }
+    const bots = data.bots ?? 0;
+    if (!isIntInRange(bots, 0, maxPlayers - 1)) return reply({ error: 'Número de bots inválido.' });
 
     const roomId = nanoid(16);
     const code = generateRoomCode();
@@ -154,6 +175,7 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
       .run(roomId, code, userId, maxPlayers, turnTimer);
     db.prepare('INSERT INTO room_players (room_id, user_id, color) VALUES (?, ?, ?)')
       .run(roomId, userId, PLAYER_COLORS[0]);
+    for (let i = 0; i < bots; i++) addBotSeat(roomId, maxPlayers);
 
     socket.join(roomId);
     socket.data.roomId = roomId;
@@ -223,19 +245,8 @@ export function registerLobbyEvents(io: GameServer, socket: GameSocket) {
     const room = hostsWaitingRoom(socket.data.userId, socket.data.roomId);
     if (typeof room === 'string') return reply({ error: room });
 
-    const players = db.prepare('SELECT * FROM room_players WHERE room_id = ?').all(room.id) as RoomPlayer[];
-    if (players.length >= room.max_players) return reply({ error: 'Sala cheia.' });
-
-    const usedColors = players.map(p => p.color);
-    const color = PLAYER_COLORS.find(c => !usedColors.includes(c))!;
-    const taken = new Set((db.prepare(`
-      SELECT u.username FROM room_players rp JOIN users u ON u.id = rp.user_id WHERE rp.room_id = ?
-    `).all(room.id) as { username: string }[]).map(u => u.username));
-    const name = BOT_NAMES.find(n => !taken.has(n)) ?? `Bot ${players.length + 1}`;
-    const id = BOT_ID_PREFIX + nanoid(10);
-    db.prepare('INSERT INTO users (id, username, token_hash) VALUES (?, ?, NULL)').run(id, name);
-    db.prepare('INSERT INTO room_players (room_id, user_id, color) VALUES (?, ?, ?)').run(room.id, id, color);
-
+    const err = addBotSeat(room.id, room.max_players);
+    if (err) return reply({ error: err });
     reply({ ok: true });
     emitRoomState(io, room.id);
   });
