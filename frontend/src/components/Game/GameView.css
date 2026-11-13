@@ -468,6 +468,7 @@ button.play-btn.active {
 
 .chat-form {
   display: flex;
+  flex-direction: row; /* forms stack their fields by default in this app */
   gap: 0.4rem;
 }
 

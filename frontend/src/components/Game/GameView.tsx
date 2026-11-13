@@ -7,6 +7,7 @@ import Dice from './Dice';
 import DevCardsPanel from './DevCardsPanel';
 import DiscardPanel from './DiscardPanel';
 import HelpDialog from './HelpDialog';
+import RollStats from './RollStats';
 import IncomingOffer from './IncomingOffer';
 import SoundToggle from './SoundToggle';
 import TradePanel from './TradePanel';
@@ -328,6 +329,7 @@ export default function GameView() {
           <TradePanel hand={me.resources} bank={game.bank} bankRatios={legal.bankRatios} offer={game.tradeOffer}
             opponents={game.playerOrder.filter(id => id !== user.id)} nameOf={nameOf} act={act} />
         )}
+        {game.phase !== 'setup' && <RollStats stats={game.rollStats} lastSum={game.dice ? game.dice[0] + game.dice[1] : null} />}
         <ChatPanel colorOf={id => game.players[id]?.color ?? '#eee'} />
         <section className="panel leave-panel">
           {game.phase === 'finished' ? (

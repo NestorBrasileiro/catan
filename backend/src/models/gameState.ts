@@ -144,6 +144,7 @@ export interface GameView {
   bank: Resources;                     // public, like the card piles on the table
   dice: [number, number] | null;
   rollCount: number;                   // grows with every roll, even when the dice repeat
+  rollStats: number[];                 // how many times each sum came up: index 0 is a 2, index 10 is a 12
   lastProduction: Production | null;   // public, like cards handed out on the table
   winnerId: string | null;
   discards: Record<string, number>;    // userId → cards still owed after a 7
@@ -209,6 +210,7 @@ export class GameState {
   robberHex: string;
   dice: [number, number] | null = null;
   rollCount = 0;
+  readonly rollStats: number[] = Array(11).fill(0); // times each sum came up, from 2 (index 0) to 12
   lastProduction: Production | null = null;
   winnerId: string | null = null;
   readonly pendingDiscards = new Map<string, number>();
@@ -435,6 +437,7 @@ export class GameState {
     this.dice = this.rollDice();
     this.rollCount++;
     const sum = this.dice[0] + this.dice[1];
+    this.rollStats[sum - 2]++;
     if (sum === 7) {
       this.startRobber();
     } else {
@@ -928,6 +931,7 @@ export class GameState {
       bank: { ...this.bank },
       dice: this.dice,
       rollCount: this.rollCount,
+      rollStats: [...this.rollStats],
       lastProduction: this.lastProduction && {
         id: this.lastProduction.id,
         gains: this.lastProduction.gains.map(g => ({ ...g })),

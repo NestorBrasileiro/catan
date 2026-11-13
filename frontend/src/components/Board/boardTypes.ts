@@ -108,6 +108,7 @@ export interface GameView {
   bank: Resources;
   dice: [number, number] | null;
   rollCount: number; // grows with every roll, even when the dice repeat
+  rollStats: number[]; // how many times each sum came up: index 0 is a 2, index 10 is a 12
   lastProduction: { id: number; gains: ResourceGain[] } | null; // last cards the bank handed out from the hexes
   winnerId: string | null;
   discards: Record<string, number>; // cards each player still has to discard after a 7

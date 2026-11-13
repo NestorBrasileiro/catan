@@ -141,6 +141,7 @@ describe('turno', () => {
     ok(game, 'A', { type: 'roll_dice' });
     assert.deepEqual(game.dice, [2, 3]);
     assert.equal(game.apply('A', { type: 'roll_dice' }), 'Os dados já foram rolados.');
+    assert.deepEqual(game.toView('B').rollStats, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]); // one 5
     ok(game, 'A', { type: 'end_turn' });
     assert.equal(game.currentPlayerId, 'B');
     assert.equal(game.step, 'roll');

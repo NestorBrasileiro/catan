@@ -81,6 +81,7 @@ Referência de regras e interface: Catan base oficial, como no Board Game Arena.
 - ✅ Animações e som: os dados rolam no canto do tabuleiro e o resultado só aparece quando param; as cartas produzidas voam do hexágono até a mão de quem ganhou. Sons gerados no navegador (sem arquivos de áudio) para dados, cartas, construção, sua vez, ladrão, oferta de troca e fim de jogo, com botão 🔊/🔇 que fica salvo. Quem tem "reduzir movimento" ligado no sistema não vê as animações
 - ✅ Tabuleiro 3D (three.js): terrenos com relevo, portos como barcos, peças que caem no lugar, ladrão que anda e dados que rolam na cena. Arraste para girar a câmera e role para aproximar. O botão 2D/3D ao lado do status volta para o tabuleiro plano (a escolha fica salva). Há também um botão para maximizar o jogo na janela e outro para a tela cheia do navegador
 - ✅ Chat na partida (últimas 100 mensagens ficam guardadas para quem recarrega), guia "Como jogar" no botão "?" (regras, custos, cartas, ladrão, comércio, prêmios) e dados automáticos: na sua vez, sem carta de desenvolvimento para jogar, os dados rolam sozinhos
+- ✅ Contador de dados: painel com quantas vezes cada soma (2 a 12) saiu na partida, comparado com o esperado pela probabilidade
 - ⏳ Histórico de jogadas, timer de turno, tela de vitória; partidas ainda vivem só na memória (reiniciar o servidor encerra as partidas em andamento)
 
 ## Eventos WebSocket (Cliente → Servidor)
